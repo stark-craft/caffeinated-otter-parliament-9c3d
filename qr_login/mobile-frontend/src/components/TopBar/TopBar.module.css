@@ -1,0 +1,44 @@
+.topbar {
+    background: var(--ink);
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+}
+
+.topbarIcon {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #4F8EF7, #9B6DFF);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+}
+
+.topbarName {
+    font-size: 16px;
+    font-weight: 800;
+    color: #EEF2FF;
+    letter-spacing: -0.3px;
+}
+
+.topbarSub {
+    font-size: 10px;
+    color: #5A6A90;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.topbarSession {
+    margin-left: auto;
+    font-size: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    color: #4F8EF7;
+    background: rgba(79, 142, 247, 0.15);
+    border-radius: 6px;
+    padding: 3px 8px;
+}

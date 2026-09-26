@@ -1,0 +1,29 @@
+:root {
+  color-scheme: dark;
+  font-family: Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  background: #0f0f0f;
+  color: #f1f1f1;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  overflow: auto;
+}
+
+body { min-width: 1120px; background: #0f0f0f; }
+
+#root { width: 100%; min-width: 1120px; min-height: 100vh; }
+
+html.player-is-fullscreen, html.player-is-fullscreen body { overflow: hidden; }
+
+button, input, select { font: inherit; }
+
+button { color: inherit; }
+
+button:focus-visible { outline: none; }

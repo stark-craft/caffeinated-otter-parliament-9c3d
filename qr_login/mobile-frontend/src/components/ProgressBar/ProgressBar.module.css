@@ -1,0 +1,21 @@
+.progressBar {
+    display: flex;
+    padding: 16px 20px 0;
+    gap: 6px;
+}
+
+.progStep {
+    flex: 1;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border);
+    transition: background 0.4s;
+}
+
+.done {
+    background: var(--green);
+}
+
+.active {
+    background: var(--accent);
+}

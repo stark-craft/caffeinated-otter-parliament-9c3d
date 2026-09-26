@@ -1,0 +1,1 @@
+"""QR login module — QR pairing + automatic-callback OAuth for mobile login.Plugs into the existing commagent FastAPI backend (port 8077) via an APIRouter.All routes are prefixed with /api/qr/ to avoid conflicts with existing routes.Tokens are saved to the existing commagent/.tokens/ directory."""

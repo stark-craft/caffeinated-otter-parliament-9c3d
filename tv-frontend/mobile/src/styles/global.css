@@ -1,0 +1,465 @@
+/* Exact copy of agentic-commerce-demo/mobile-client-frontend design system   (variables.css + global.css + all component CSS modules inlined as global classes) */
+:root {
+  --bg: #f5f2ec;
+  --white: #fdfcfa;
+  --ink: #14110e;
+  --ink2: #3a352e;
+  --muted: #8a8075;
+  --border: #ddd8d0;
+  --surface: #edebe5;
+  --accent: #2952a3;
+  --gold: #d4891a;
+  --green: #1a7a4a;
+  --red: #c42b2b;
+  --purple: #6b3fa0;
+}
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Outfit", sans-serif;
+  min-height: 100vh;
+  min-height: 100dvh;
+  max-width: 480px;
+  margin: 0 auto;
+  padding-bottom: 40px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+input,
+button,
+textarea,
+select {
+  font-family: inherit;
+}
+a {
+  color: inherit;
+  text-decoration: none;
+} /* ── TopBar (TopBar.module.css) ── */
+.topbar {
+  background: var(--ink);
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+.topbar-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #4f8ef7, #9b6dff);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+}
+.topbar-name {
+  font-size: 16px;
+  font-weight: 800;
+  color: #eef2ff;
+  letter-spacing: -0.3px;
+}
+.topbar-sub {
+  font-size: 10px;
+  color: #5a6a90;
+  font-family: "JetBrains Mono", monospace;
+}
+.topbar-session {
+  margin-left: auto;
+  font-size: 10px;
+  font-family: "JetBrains Mono", monospace;
+  color: #4f8ef7;
+  background: rgba(79, 142, 247, 0.15);
+  border-radius: 6px;
+  padding: 3px 8px;
+} /* ── ProgressBar (ProgressBar.module.css) ── */
+.progress-bar {
+  display: flex;
+  padding: 16px 20px 0;
+  gap: 6px;
+}
+.prog-step {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  transition: background 0.4s;
+}
+.prog-step.done {
+  background: var(--green);
+}
+.prog-step.active {
+  background: var(--accent);
+} /* ── StepHeader (StepHeader.module.css) ── */
+.step-header {
+  padding: 16px 20px 8px;
+}
+.step-num {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-family: "JetBrains Mono", monospace;
+  margin-bottom: 4px;
+}
+.step-title {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+}
+.step-sub {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 4px;
+  line-height: 1.5;
+} /* ── Form inputs (FormInput.module.css + Step2Details.module.css) ── */
+.card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  margin: 0 16px 12px;
+  padding: 16px;
+}
+.form-group {
+  margin-bottom: 14px;
+}
+.form-group:last-child {
+  margin-bottom: 0;
+}
+.form-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+  display: block;
+}
+.form-input {
+  width: 100%;
+  background: var(--white);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-family: "Outfit", sans-serif;
+  font-size: 15px;
+  color: var(--ink);
+  outline: none;
+  transition: border-color 0.2s;
+}
+.form-input:focus {
+  border-color: var(--accent);
+}
+.form-input::placeholder {
+  color: var(--muted);
+}
+.form-input[readonly] {
+  background: var(--surface);
+  color: var(--ink2);
+  cursor: default;
+}
+.form-input:disabled {
+  background: var(--bg);
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.8;
+} /* ── CTAButton (CTAButton.module.css) ── */
+.cta {
+  display: block;
+  width: calc(100% - 32px);
+  margin: 0 16px 16px;
+  padding: 15px;
+  border-radius: 12px;
+  border: none;
+  cursor: pointer;
+  font-family: "Outfit", sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  background: var(--ink);
+  color: var(--white);
+  transition: all 0.2s;
+  text-align: center;
+}
+.cta:hover {
+  background: #2a2520;
+  transform: translateY(-1px);
+}
+.cta:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+.cta.accent {
+  background: linear-gradient(135deg, var(--accent), #6b4fd0);
+  color: white;
+}
+.cta.accent:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+} /* ── Error (Step2Details.module.css) ── */
+.error-msg {
+  background: #fff5f5;
+  border: 1px solid var(--red);
+  border-radius: 12px;
+  margin: 0 16px 12px;
+  padding: 12px 16px;
+  font-size: 13px;
+  color: var(--red);
+} /* ── Merchant list (Step1Gateway.module.css) ── */
+.merchant-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 16px 16px;
+}
+.m-card {
+  background: var(--white);
+  border: 2px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  transition: all 0.2s;
+}
+.m-card.connected {
+  border-color: var(--green);
+  background: rgba(26, 122, 74, 0.04);
+}
+.m-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
+  background: var(--bg);
+}
+.m-info {
+  flex: 1;
+}
+.m-name {
+  font-size: 15px;
+  font-weight: 700;
+}
+.m-sub {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.login-btn {
+  padding: 8px 18px;
+  border-radius: 10px;
+  border: 1.5px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font-family: "Outfit", sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+.login-btn:hover {
+  background: rgba(41, 82, 163, 0.06);
+}
+.login-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.connected-badge {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--green);
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(26, 122, 74, 0.1);
+}
+.connected-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.reconnect-btn {
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1.5px solid var(--green);
+  background: transparent;
+  color: var(--green);
+  font-family: "Outfit", sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+.reconnect-btn:hover {
+  background: rgba(26, 122, 74, 0.06);
+}
+.reconnect-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.waiting-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(41, 82, 163, 0.08);
+}
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(41, 82, 163, 0.2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.hint {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 0 16px 12px;
+  line-height: 1.5;
+} /* ── Success screen (SuccessScreen.module.css) ── */
+.success-screen {
+  padding: 40px 20px;
+  text-align: center;
+}
+.success-icon {
+  font-size: 72px;
+  margin-bottom: 16px;
+  animation: popIn 0.5s cubic-bezier(0.4, 0, 0, 1.5);
+}
+@keyframes popIn {
+  from {
+    transform: scale(0);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+.success-title {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.8px;
+  margin-bottom: 8px;
+}
+.success-sub {
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.6;
+  margin-bottom: 24px;
+} /* ── TV sync status (TVSyncStatus.module.css) ── */
+.tv-sync {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  margin: 0 16px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.tv-sync-icon {
+  font-size: 32px;
+}
+.tv-sync-text {
+  font-size: 13px;
+  line-height: 1.5;
+}
+.tv-sync-text strong {
+  color: var(--ink);
+}
+.tv-sync-text span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.syncing-dots span {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin: 0 2px;
+  animation: sd 1.2s infinite;
+}
+.syncing-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.syncing-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+@keyframes sd {
+  0%,
+  80%,
+  100% {
+    transform: scale(0.6);
+    opacity: 0.3;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+} /* ── Summary card (SummaryCard.module.css) ── */
+.summary-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  margin: 0 16px 12px;
+  padding: 16px;
+}
+.summary-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+.summary-item:last-child {
+  border-bottom: none;
+}
+.summary-lbl {
+  color: var(--muted);
+}
+.summary-val {
+  font-weight: 700;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+}
+.summary-val.green {
+  color: var(--green);
+} /* ── Final hint (SuccessScreen.module.css) ── */
+.final-hint {
+  padding: 0 16px;
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+  line-height: 1.6;
+  margin-top: 20px;
+}

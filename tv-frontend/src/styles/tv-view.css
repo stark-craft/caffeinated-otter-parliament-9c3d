@@ -1,0 +1,87 @@
+.video-player {
+  --vp-panel-width: clamp(360px, 28vw, 540px);
+  --vp-panel-gutter: clamp(10px, 1vw, 18px);
+  --vp-panel-vertical-space: clamp(14px, 2.2vh, 28px);
+  background:
+    radial-gradient(ellipse at 35% 45%, rgb(var(--vp-ambient-rgb) / .7), transparent 72%),
+    linear-gradient(160deg, rgb(var(--vp-ambient-rgb) / .4), #050a0d 85%);
+  transition: background-color .7s ease;
+}
+
+.vp-stage {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: width .32s ease;
+}
+
+.vp-viewing-area {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #05090c;
+}
+
+.vp-viewing-area .vp-media {
+  width: 100%;
+  height: 100%;
+  object-fit: cover !important;
+  background: transparent;
+}
+
+.vp-commerce-open .vp-stage {
+  width: calc(100% - var(--vp-panel-width));
+}
+
+.vp-commerce-open .vp-viewing-area {
+  height: auto;
+  max-height: 100%;
+  aspect-ratio: var(--vp-video-aspect);
+  border-radius: clamp(10px, .7vw, 14px);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, .32);
+}
+
+.vp-commerce-open .vp-media {
+  object-fit: contain !important;
+}
+
+.vp-commerce-overlay {
+  top: var(--vp-panel-vertical-space);
+  right: var(--vp-panel-gutter);
+  bottom: var(--vp-panel-vertical-space);
+  width: calc(var(--vp-panel-width) - var(--vp-panel-gutter) - var(--vp-panel-gutter)) !important;
+  border-radius: clamp(18px, 1.5vw, 28px);
+  overflow: hidden;
+}
+
+.vp-commerce-open .vp-commerce-overlay {
+  box-shadow: 0 22px 60px rgba(0, 0, 0, .5);
+}
+
+.vp-commerce-overlay .qb-panel {
+  border-radius: inherit;
+  border-left: 0;
+  box-shadow: none;
+}
+
+.vp-viewing-area .vp-empty {
+  padding: 24px;
+}
+
+.vp-viewing-area .vp-empty p {
+  overflow-wrap: anywhere;
+}
+
+.vp-commerce-open .vp-empty > span { display: none; }
+.vp-commerce-open .vp-empty h2 { margin: 0 0 6px; font-size: clamp(16px, 1.5vw, 24px); }
+.vp-commerce-open .vp-empty p { font-size: clamp(10px, .8vw, 14px); }
+.vp-commerce-open .vp-retry-media { margin-top: 8px; padding: 6px 10px; }
+
+@media (max-width: 700px) {
+  .video-player { --vp-panel-width: min(360px, 54vw); }
+}
