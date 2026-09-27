@@ -72,3 +72,22 @@ export function backTarget(
     vertical,
   )
 }
+
+/* Keep the screen the viewer actually left. The fixed map above remains a
+   fallback for a screen opened without a recorded predecessor. */
+export function recordScreenVisit(history, current, next, { replace = false } = {}) {
+  if (replace || !current || current === next) return history
+  return [...history, current]
+}
+
+export function takePreviousScreen(history) {
+  if (!history.length) return { screen: null, history }
+  return { screen: history[history.length - 1], history: history.slice(0, -1) }
+}
+
+export function qrFocusAfterArrow(current, key, canRetry) {
+  if (!canRetry) return 'close'
+  if (key === 'ArrowUp' || key === 'ArrowLeft') return 'retry'
+  if (key === 'ArrowDown' || key === 'ArrowRight') return 'close'
+  return current
+}

@@ -75,11 +75,13 @@ export function useLiveOrderTracking({
       const acceptedPhase = trackingPhase(next);
       if (
         (acceptedPhase === "pay" || acceptedPhase === "unknown") &&
-        !qrRef.current &&
         next.payment_qr
       ) {
-        qrRef.current = imageDataUri(next.payment_qr);
-        setQr(qrRef.current);
+        const latestQr = imageDataUri(next.payment_qr);
+        if (latestQr && latestQr !== qrRef.current) {
+          qrRef.current = latestQr;
+          setQr(latestQr);
+        }
       }
       if (trackingPhaseRank(acceptedPhase) > trackingPhaseRank("pay")) {
         qrRef.current = "";
@@ -122,7 +124,7 @@ export function useLiveOrderTracking({
         if (cancelled) return;
         const next = acceptSnapshot(response);
         setPolling(false);
-        if (withinWindow && !next.done && trackingPhase(next) !== "cancelled")
+        if (withinWindow && !next.done && !["cancelled", "delivered"].includes(trackingPhase(next)))
           timer = window.setTimeout(poll, POLL_MS);
       } catch (pollError) {
         if (cancelled) return;

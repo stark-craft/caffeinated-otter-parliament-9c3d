@@ -15,6 +15,8 @@ import { buildView } from './quickbite/viewContext.js'
 import { deriveIntent } from './quickbite/deriveIntent.js'
 import { routeIntent } from './quickbite/intents.js'
 import { newVoiceTrace, voiceError, voiceLog, voiceWarn } from './quickbite/voiceDiagnostics.js'
+import { paymentQrFromEnvelope, trackingFromEnvelope } from './quickbite/envelopes.js'
+import { confirmedCodCheckout, paymentMethodFromEnvelope } from './quickbite/payMode.js'
 const samsungVoiceTargets = getHiddenVoiceTargets()
 const SamsungVoiceTargetRegistry = memo(function SamsungVoiceTargetRegistry({ transcriptRef }) {
 return (
@@ -107,11 +109,12 @@ setPaneOpen(false)
 }
 }, [qrTarget, hasConnectedMerchant])
 const seedTracking = useCallback((envelope) => {
-if (!envelope?.tracking) return envelope
-const images = Array.isArray(envelope.images) ? envelope.images : []
-const qr = images.length ? images[images.length - 1] : null
+const tracking = trackingFromEnvelope(envelope)
+if (!tracking) return envelope
+const qr = paymentQrFromEnvelope(envelope, { allowImageFallback: !confirmedCodCheckout(envelope) })
+const payment = paymentMethodFromEnvelope(envelope)
 orderSeq.current += 1
-setActiveOrder({ seq: orderSeq.current, tracking: envelope.tracking, qr })
+setActiveOrder({ seq: orderSeq.current, tracking, qr, payment })
 setPaneOpen(true)
 return envelope
 }, [])
@@ -127,7 +130,7 @@ const id = payload.session_id || payload.id || saved || ''
 setSessionId(id)
 if (id) localStorage.setItem('ca_sid', id)
 setPlatforms(payload.platforms || [])
-if (payload.tracking) seedTracking({ tracking: payload.tracking, images: payload.images || [] })
+if (payload.tracking) seedTracking(payload)
 })
 .catch((error) => {
 if (!cancelled) {
@@ -439,6 +442,7 @@ open={paneOpen}
 onClose={() => setPaneOpen(false)}
 sessionId={sessionId}
 activeOrder={activeOrder}
+onClearActiveOrder={() => setActiveOrder(null)}
 platforms={platforms}
 sendSilent={sendSilent}
 merchantAccess={{ food: foodUnlocked, grocery: groceryUnlocked }}

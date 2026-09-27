@@ -28,12 +28,9 @@ export function trackingPhase(snapshot) {
 
   const text = trackingText(snapshot).toLowerCase()
 
-  if (text.includes('cancel')) return 'cancelled'
+  if (/\b(cancelled|canceled)\b/.test(text)) return 'cancelled'
 
-  if (
-    text.includes('deliver') ||
-    (snapshot.done === true && !text.includes('cancel'))
-  ) {
+  if (/\bdelivered\b|\bdelivery complete(?:d)?\b/.test(text) || snapshot.done === true) {
     return 'delivered'
   }
 
@@ -93,6 +90,12 @@ export function normalizeTrackingSnapshot(response) {
       ? source.rider
       : null
 
+  const rawEta = source.eta ?? source.delivery_eta ?? source.eta_minutes ??
+    tracking.eta ?? tracking.delivery_eta ?? tracking.eta_minutes
+  const eta = typeof rawEta === 'number' && Number.isFinite(rawEta)
+    ? `${rawEta} min`
+    : typeof rawEta === 'string' ? rawEta.trim() : ''
+
   return {
     ...source,
     order_id:
@@ -109,10 +112,14 @@ export function normalizeTrackingSnapshot(response) {
       source.status ||
       source.step ||
       '',
+    eta,
     payment_qr:
       source.payment_qr ||
       source.qr ||
       source.qr_code ||
+      tracking.payment_qr ||
+      tracking.qr ||
+      tracking.qr_code ||
       null,
     rider,
     found: source.found,

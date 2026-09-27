@@ -1,7 +1,9 @@
 // Samsung TV sends the mandatory navigation keys as ordinary DOM key events.
 // Some Tizen WebViews leave event.key empty, so retain their documented codes.
 const KEY_BY_CODE = {
+  8: 'Backspace',
   13: 'Enter',
+  27: 'Escape',
   37: 'ArrowLeft',
   38: 'ArrowUp',
   39: 'ArrowRight',
@@ -22,7 +24,8 @@ export function tvRemoteKey(event) {
     return KEY_BY_CODE[code]
   }
   if (event.key === 'OK' || event.key === 'Select') return 'Enter'
-  if (event.key === 'Return' || event.key === 'BrowserBack') return 'Backspace'
+  if (event.key === 'Return' || event.key === 'BrowserBack' || event.key === 'Back') return 'Backspace'
+  if (['Up', 'Down', 'Left', 'Right'].includes(event.key)) return `Arrow${event.key}`
   return event.key || KEY_BY_CODE[code] || ''
 }
 

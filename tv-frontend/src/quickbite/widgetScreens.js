@@ -70,23 +70,29 @@ export function platformMentioned(model) {
   const hit = text.match(MENTIONED_RE);
   return hit ? MENTIONED_NAMES[hit[1].toLowerCase()] : null;
 }
+function actionsFromEnvelope(envelope) {
+  const topLevel = asArray(envelope?.actions);
+  return topLevel.length ? topLevel : asArray(asObject(envelope?.payload).actions);
+}
 function textFallback(envelope, retry = true) {
   return {
     overline: "QuickBite",
     title: plainCaption(envelope?.text) || "Nothing to show yet.",
     bullets: [],
-    actions: asArray(envelope?.actions),
+    actions: actionsFromEnvelope(envelope),
     retry,
   };
 }
 function textModel(envelope) {
   const p = asObject(envelope?.payload);
-  if (!p.title) return null;
+  if (!p.title) {
+    return plainCaption(envelope?.text) ? textFallback(envelope, false) : null;
+  }
   return {
     overline: p.overline || "QuickBite",
     title: p.title,
     bullets: asArray(p.bullets),
-    actions: asArray(p.actions),
+    actions: actionsFromEnvelope(envelope),
     retry: false,
   };
 }
@@ -225,7 +231,8 @@ route. An unrecognised or missing kind (a future carousel kind the TV
 hasn't been taught yet) must fall back to the text screen, not land on
 "Choose a Restaurant" by default. */
 function carouselRoute(envelope) {
-  const kind = asObject(envelope?.payload).kind;
+  const payload = asObject(envelope?.payload);
+  const kind = payload.kind || asObject(payload.data).kind;
   if (kind === "grocery") {
     return {
       screen: "gresults",

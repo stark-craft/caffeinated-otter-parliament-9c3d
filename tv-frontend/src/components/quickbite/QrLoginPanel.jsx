@@ -1,6 +1,7 @@
-import { forwardRef, useImperativeHandle } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import QuickBiteLogo from './QuickBiteLogo.jsx'
+import { qrFocusAfterArrow } from '../../quickbite/navigation.js'
 import './QrLoginPanel.css'
 
 const MOBILE_APP_URL = import.meta.env.DEV
@@ -23,18 +24,26 @@ const QrLoginPanel = forwardRef(function QrLoginPanel({
     ? `${MOBILE_APP_URL}${MOBILE_APP_URL.includes('?') ? '&' : '?'}session=${encodeURIComponent(sessionId)}`
     : ''
   const canRetry = Boolean(error || complete)
+  const [focusAction, setFocusAction] = useState('close')
+
+  useEffect(() => {
+    if (open) setFocusAction(canRetry ? 'retry' : 'close')
+  }, [open, canRetry])
 
   useImperativeHandle(ref, () => ({
     handleKey(key) {
       if (!open) return false
       if (key === 'Escape' || key === 'Backspace') {
         onClose()
-      } else if ((key === 'Enter' || key === ' ') && canRetry) {
-        onRetry()
+      } else if (key.startsWith('Arrow')) {
+        setFocusAction((current) => qrFocusAfterArrow(current, key, canRetry))
+      } else if (key === 'Enter' || key === ' ') {
+        if (focusAction === 'retry' && canRetry) onRetry()
+        else onClose()
       }
       return true
     },
-  }), [open, onClose, onRetry, canRetry])
+  }), [open, onClose, onRetry, canRetry, focusAction])
 
   return (
     <aside className={`qb-panel qb-qr-panel ${open ? 'is-open' : ''}`} aria-hidden={!open} aria-label="QuickBite phone pairing">
@@ -65,10 +74,10 @@ const QrLoginPanel = forwardRef(function QrLoginPanel({
         </p>
         {connectionError && <p className="qb-qr-status" role="alert">{connectionError}</p>}
         {sessionId && <p className="qb-qr-session">Session: {sessionId}</p>}
-        {canRetry && <button type="button" className="qb-qr-retry" onClick={onRetry}>Try pairing again</button>}
+        {canRetry && <button type="button" className={`qb-qr-retry ${focusAction === 'retry' ? 'is-focused' : ''}`} onClick={onRetry} onMouseEnter={() => setFocusAction('retry')} onFocus={() => setFocusAction('retry')}>Try pairing again</button>}
       </main>
       <nav className="qb-bottom-nav" aria-label="QuickBite navigation">
-        <button type="button" className="qb-exit-button" onClick={onClose}>Close</button>
+        <button type="button" className={`qb-exit-button ${focusAction === 'close' ? 'is-focused' : ''}`} onClick={onClose} onMouseEnter={() => setFocusAction('close')} onFocus={() => setFocusAction('close')}>Close</button>
       </nav>
     </aside>
   )

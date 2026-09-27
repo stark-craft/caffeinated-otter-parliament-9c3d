@@ -64,7 +64,8 @@
   cursor: pointer;
 }
 
-.qb-qr-retry:focus-visible {
+.qb-qr-retry:focus-visible,
+.qb-qr-retry.is-focused {
   outline: 3px solid var(--qb-orange-bright);
   outline-offset: 3px;
 }

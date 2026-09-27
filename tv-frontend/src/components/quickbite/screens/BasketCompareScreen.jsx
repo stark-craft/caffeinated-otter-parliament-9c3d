@@ -1,3 +1,4 @@
+import PlatformBadge from '../PlatformBadge.jsx';
 const rupees = (n) =>
   typeof n === "number" ? `₹${n.toLocaleString("en-IN")}` : "—";
 export default function BasketCompareScreen({
@@ -18,7 +19,7 @@ export default function BasketCompareScreen({
         {model.platforms.map((p, i) => (
           <li key={p.key} className={`qb-bcmp-row ${p.best ? "is-best" : ""}`}>
             <div className="qb-bcmp-head">
-              <strong>{p.name}</strong>
+              <strong><PlatformBadge platform={p.name} /></strong>
               <span>{rupees(p.total)}</span>
             </div>
             <div className="qb-bcmp-bar">

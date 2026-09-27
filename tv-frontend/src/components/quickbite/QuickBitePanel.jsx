@@ -6,6 +6,7 @@ import {
   useRef,
   useState,} from 'react'
 import QuickBiteLogo from './QuickBiteLogo.jsx'
+import PlatformBadge from './PlatformBadge.jsx'
 import {
   QUICKBITE_CATEGORIES,
   QUICKBITE_DISHES,
@@ -19,12 +20,13 @@ import {
   money,
   paymentQrFromEnvelope,
   restaurantCardsFromEnvelope,
-  safeSubtotal,} from '../../quickbite/envelopes.js'
+  safeSubtotal,
+  trackingFromEnvelope,} from '../../quickbite/envelopes.js'
 import {
   screenForTracking,
   trackingPhase,
   trackingText,} from '../../quickbite/tracking.js'
-import { backTarget } from '../../quickbite/navigation.js'
+import { backTarget, recordScreenVisit, takePreviousScreen } from '../../quickbite/navigation.js'
 import { missLabel } from '../../quickbite/missLabels.js'
 import { matchedDishLines, notFoundLabel } from '../../quickbite/restaurantMatch.js'
 import { routeIntent } from '../../quickbite/intents.js'
@@ -39,7 +41,7 @@ import BasketCompareScreen from './screens/BasketCompareScreen.jsx'
 import SpendScreen from './screens/SpendScreen.jsx'
 import { GROCERY_CATEGORIES, GROCERY_PRODUCTS, productSearchPrompt } from '../../quickbite/groceryCatalog.js'
 import { HOME_BACKDROP, MODE_TILES } from '../../quickbite/heroArt.js'
-import { orderPlatform, showsUpiQr } from '../../quickbite/payMode.js'
+import { confirmedCodCheckout, orderPlatform, paymentMethodFromEnvelope, paymentPresentation } from '../../quickbite/payMode.js'
 import { voiceError, voiceLog, voiceWarn } from '../../quickbite/voiceDiagnostics.js'
 const ORDER_SCREENS = new Set([
   'pay',
@@ -81,6 +83,7 @@ function paymentDisplayLabel(value) {
       value.label ??
       value.name ??
       value.method ??
+      value.mode ??
       value.type ??
       value.payment_method ??
       '',
@@ -277,7 +280,8 @@ function ErrorState({
   detail,
   onRetry,
   focused,
-  onFocus,}) {
+  onFocus,
+  retryLabel = 'Retry',}) {
   return (
     <div
       className="qb-state-card qb-state-error"
@@ -297,7 +301,7 @@ function ErrorState({
           onFocus={onFocus}
           onClick={onRetry}
         >
-          Retry
+          {retryLabel}
         </button>
       )}
     </div>
@@ -309,6 +313,7 @@ const QuickBitePanel = forwardRef(
       onClose,
       sessionId,
       activeOrder,
+      onClearActiveOrder,
       platforms,
       sendSilent,
       merchantAccess,
@@ -323,8 +328,22 @@ const QuickBitePanel = forwardRef(
     const panelRef = useRef(null)
     const handleKeyRef = useRef(null)
     const lastVoiceTraceRef = useRef(null)
-    const [screen, setScreen] =
+    const checkoutInFlightRef = useRef(false)
+    const [screen, setScreenState] =
       useState('home')
+    const screenRef = useRef('home')
+    const screenHistoryRef = useRef([])
+    const voicePendingRef = useRef(false)
+    const suppressedTrackingPhaseRef = useRef(null)
+    screenRef.current = screen
+    function setScreen(next, options = {}) {
+      const previous = screenRef.current
+      if (next === previous) return
+      screenHistoryRef.current = recordScreenVisit(screenHistoryRef.current, previous, next, options)
+      if (next === 'home') screenHistoryRef.current = []
+      screenRef.current = next
+      setScreenState(next)
+    }
     // Which path the user walked in on. Decides the grocery/food branch on the
     // screens the two paths share — `cart` onward — and nothing else.
     const [vertical, setVertical] = useState('food')
@@ -375,6 +394,10 @@ const QuickBitePanel = forwardRef(
       checkoutQr,
       setCheckoutQr,
     ] = useState('')
+    const [checkoutWithoutTracking, setCheckoutWithoutTracking] = useState(false)
+    const [checkoutPayment, setCheckoutPayment] = useState('')
+    const [brokenPaymentQr, setBrokenPaymentQr] = useState('')
+    const [orderSubmitted, setOrderSubmitted] = useState(false)
     const [
       loadingPhase,
       setLoadingPhase,
@@ -426,8 +449,8 @@ const QuickBitePanel = forwardRef(
           Math.max(0, (selectedItem?.variants?.length || 1) - 1),
         )
       ] || null
-    const trackingSnapshot =
-      trackingState?.snapshot
+    // A QR-only checkout cannot inherit a previous order's tracking state.
+    const trackingSnapshot = checkoutWithoutTracking ? null : trackingState?.snapshot
     const livePhase =
       trackingPhase(
         trackingSnapshot,
@@ -440,39 +463,35 @@ const QuickBitePanel = forwardRef(
         'cancelled',
       ].includes(livePhase)
         ? ''
-        : trackingState?.qr ||
-          checkoutQr ||
-          imageDataUri(
-            activeOrder?.qr,
-          )
+        : checkoutQr ||
+          (checkoutWithoutTracking ? '' : trackingState?.qr || imageDataUri(activeOrder?.qr))
     const cartTotal =
       cart?.total
     const checkoutActions =
       useMemo(
         () =>
-          checkoutActionLabels(
+          orderSubmitted ? [] : checkoutActionLabels(
             cartEnvelope,
           ),
-        [cartEnvelope],
+        [cartEnvelope, orderSubmitted],
       )
     const cartPaymentLabel =
       paymentDisplayLabel(
-        cart?.payment,
+        checkoutPayment || cart?.payment,
       )
-    // Only Zomato can put a payable UPI QR on a TV. For Swiggy, Instamart and
-    // Zepto the pay screen used to sit on "Waiting for payment instructions
-    // from the provider…" forever, because none was ever coming — those orders
-    // go cash-on-delivery and straight to confirmation instead.
-    const orderIsQrPayable =
-      showsUpiQr(
-        orderPlatform({
-          cart,
-          groceryCard:
-            selectedGroceryCard,
-          restaurant:
-            selectedRestaurant,
-        }),
-      )
+    const cartPlatformName = orderPlatform({
+      cart,
+      groceryCard: vertical === 'grocery' ? selectedGroceryCard : null,
+      restaurant: vertical === 'food' ? selectedRestaurant : null,
+    })
+    const orderPlatformName = ORDER_SCREENS.has(screen) && !checkoutWithoutTracking
+      ? orderPlatform({ tracking: { platform: trackingSnapshot?.platform || activeOrder?.tracking?.platform }, cart, groceryCard: vertical === 'grocery' ? selectedGroceryCard : null, restaurant: vertical === 'food' ? selectedRestaurant : null })
+      : cartPlatformName
+    const paymentMode = paymentPresentation({
+      platform: orderPlatformName,
+      payment: trackingSnapshot?.payment || trackingSnapshot?.payment_method || checkoutPayment || activeOrder?.tracking?.payment || activeOrder?.tracking?.payment_method || cart?.payment,
+      qr: checkoutQr || (checkoutWithoutTracking ? '' : trackingState?.qr || activeOrder?.qr || trackingSnapshot?.payment_qr),
+    })
     const contentKeys =
       useMemo(() => {
         if (['text', 'agent-cart', 'compare', 'basket-compare', 'spend'].includes(screen)) {
@@ -612,10 +631,7 @@ const QuickBitePanel = forwardRef(
           return ['shop-more']
         }
         if (screen === 'pay') {
-          return [
-            'refresh-tracking',
-            'shop-more',
-          ]
+          return checkoutWithoutTracking ? ['shop-more'] : ['refresh-tracking', 'shop-more']
         }
         if (
           screen ===
@@ -654,6 +670,7 @@ const QuickBitePanel = forwardRef(
         menu,
         widgetModel,
         cartExpanded,
+        checkoutWithoutTracking,
       ])
     useImperativeHandle(
       ref,
@@ -859,9 +876,11 @@ const QuickBitePanel = forwardRef(
         setNotice(decision.notice || 'Press OK to confirm.')
       }
       if (intent?.pending) {
+        voicePendingRef.current = true
         if (traceId) voiceLog(traceId, 'QuickBite showing pending/loading screen', { intent: intent.name, vertical: intent.slots?.vertical || vertical })
-        // Keeps the restaurant header and `retry()` working: both read
-        // selectedDish, which the legacy search-loading request used to set.
+        // A food search may return restaurants, a menu, a cart or a text
+        // answer. Keep the query for a possible restaurant result, but do not
+        // show a restaurant page before the envelope tells us its real kind.
         const query = String(intent?.slots?.query || '').trim()
         if (query) {
           setSelectedCategory(null)
@@ -873,36 +892,14 @@ const QuickBitePanel = forwardRef(
         }
         setRestaurants([])
         setFlowError(null)
-        // A third bare-setScreen path, with the same caveat as below.
         if (!decision.awaitConfirm) retireAwaitingConfirm()
-        /* The loading screen follows what was asked for: a grocery list
-           showed the restaurant skeleton, then "Choose a Restaurant". */
-        /* A comparison answers on the compare or text screen, never a
-           product grid or restaurant list, so it waits on the neutral
-           "Working on it…" screen whatever the vertical. */
-        if (intent?.name === 'compare') {
-          setWidgetModel({ overline: 'QuickBite', title: 'Working on it…', bullets: [], actions: [], retry: false })
-          setLoadingPhase(''); setScreen('text'); setFocusKey('back'); return
-        }
-        const pendingVertical = intent?.slots?.vertical || vertical
-        if (pendingVertical === 'grocery') {
-          setGroceryResults([])
-          setLoadingPhase('products'); setScreen('gresults'); setFocusKey('back'); return
-        }
-        if (pendingVertical && pendingVertical !== 'food') {
-          setWidgetModel({ overline: 'QuickBite', title: 'Working on it…', bullets: [], actions: [], retry: false })
-          setLoadingPhase(''); setScreen('text'); setFocusKey('back'); return
-        }
-        setLoadingPhase('restaurants'); setScreen('restaurant'); setFocusKey('back'); return
+        setWidgetModel(null)
+        setLoadingPhase('agent'); setScreen('text'); setFocusKey('back'); return
       }
       if (intent?.error) {
         if (traceId) voiceWarn(traceId, 'QuickBite showing backend/request error', { error: intent.error, screen })
-        /* The pending branch no longer always shows the restaurant screen.
-           On the grocery skeleton, a 'restaurants' error made Retry run a food
-           restaurant search for a grocery query; on the "Working on it…" text
-           screen the error was invisible and 'retry' was not rendered. Those
-           screens get the error on the text screen, where Try again resends
-           lastRequest. */
+        /* The neutral loading screen needs a visible error and a Retry action
+           that resends the original request, regardless of its vertical. */
         if (screen === 'gresults' || screen === 'text') {
           showEnvelope({ widget: 'hologram', text: intent.error }, traceId)
           return
@@ -944,6 +941,11 @@ const QuickBitePanel = forwardRef(
       if (!activeOrder?.seq) {
         return
       }
+      suppressedTrackingPhaseRef.current = null
+      setOrderSubmitted(true)
+      setCheckoutWithoutTracking(false)
+      setCheckoutPayment(activeOrder.payment || paymentMethodFromEnvelope({ tracking: activeOrder.tracking }))
+      setBrokenPaymentQr('')
       setCheckoutQr(
         imageDataUri(
           activeOrder.qr,
@@ -966,6 +968,10 @@ const QuickBitePanel = forwardRef(
         )
       ) {
         return
+      }
+      if (suppressedTrackingPhaseRef.current) {
+        if (livePhase === suppressedTrackingPhaseRef.current || livePhase === 'unknown') return
+        suppressedTrackingPhaseRef.current = null
       }
       if (
         livePhase ===
@@ -1035,18 +1041,19 @@ const QuickBitePanel = forwardRef(
     function setScreenAndFocus(
       next,
       nextFocus,
+      options,
     ) {
       /* Leaving the screen retires any pending confirmation. The intent effect
          and handleStripPick move the screen with setScreen directly, so raising
          a confirmation is never undone here. */
-      if (next !== screen) {
+      if (next !== screenRef.current) {
         retireAwaitingConfirm()
         /* An error belongs to the screen that raised it. Letting it ride along
            put a "Retry" button on screens whose retry means something else
            entirely — including resubmitting a payment. */
         setFlowError(null)
       }
-      setScreen(next)
+      setScreen(next, options)
       const defaultFocus = {
         home: 'start-shopping',
         mode: 'mode-food',
@@ -1115,9 +1122,15 @@ const QuickBitePanel = forwardRef(
       setFlowError(null)
       setLoadingPhase('')
       retireAwaitingConfirm()
-      const nextScreen = backTarget(screen, vertical, jumpOrigin)
+      voicePendingRef.current = false
+      const previous = takePreviousScreen(screenHistoryRef.current)
+      screenHistoryRef.current = previous.history
+      const nextScreen = previous.screen || backTarget(screen, vertical, jumpOrigin)
+      if (ORDER_SCREENS.has(screen) && ORDER_SCREENS.has(nextScreen)) {
+        suppressedTrackingPhaseRef.current = livePhase
+      }
       if (jumpOrigin?.to === screen) setJumpOrigin(null)
-      setScreenAndFocus(nextScreen)
+      setScreenAndFocus(nextScreen, undefined, { replace: true })
     }
     /* Executes a router command through the panel's existing handlers. The
        router never calls these itself - it is pure - and it never issues a
@@ -1263,12 +1276,23 @@ const QuickBitePanel = forwardRef(
    // swallow everything else
     }
     function shopMore() {
+      const finishedOrder = ORDER_SCREENS.has(screen)
+      if (finishedOrder) {
+        screenHistoryRef.current = []
+        suppressedTrackingPhaseRef.current = null
+      }
       setFlowError(null)
       setNotice('')
+      setCheckoutQr('')
+      setBrokenPaymentQr('')
+      setCheckoutWithoutTracking(false)
+      setCheckoutPayment('')
+      setOrderSubmitted(false)
+      setLastCheckoutAction('')
       if (vertical === 'grocery') {
-        return setScreenAndFocus(groceryCategory ? 'gproduct' : 'gcategory')
+        return setScreenAndFocus(groceryCategory ? 'gproduct' : 'gcategory', undefined, { replace: finishedOrder })
       }
-      return setScreenAndFocus(selectedCategory ? 'dish' : 'category')
+      return setScreenAndFocus(selectedCategory ? 'dish' : 'category', undefined, { replace: finishedOrder })
     }
     async function selectDish(
       dish = currentDish,
@@ -1400,8 +1424,13 @@ const QuickBitePanel = forwardRef(
       )
 
       const platform =
-        restaurant.platform ||
-        'Zomato'
+        restaurant.platform || ''
+      if (!platform) {
+        setLoadingPhase('')
+        setFlowError({ kind: 'menu', message: 'The restaurant did not include a platform, so its menu cannot be requested safely.' })
+        setFocusKey('retry')
+        return
+      }
       const prompt =
         (wantsWholeMenu
           // Without this branch the prompt asked for "the selected dishes",
@@ -1474,6 +1503,10 @@ const QuickBitePanel = forwardRef(
       setCart(null)
       setCartEnvelope(null)
       setCheckoutQr('')
+      setBrokenPaymentQr('')
+      setCheckoutWithoutTracking(false)
+      setCheckoutPayment('')
+      setOrderSubmitted(false)
       setLastCheckoutAction(
         '',
       )
@@ -1493,7 +1526,13 @@ const QuickBitePanel = forwardRef(
         selectedRestaurant
           .platform ||
         menu?.platform ||
-        'Zomato'
+        ''
+      if (!platform) {
+        setLoadingPhase('')
+        setFlowError({ kind: 'cart', message: 'The selected item has no platform, so it cannot be added to a provider cart safely.' })
+        setFocusKey('retry')
+        return
+      }
       const variantText =
         selectedVariant?.label
           ? ` (${selectedVariant.label})`
@@ -1554,6 +1593,10 @@ const QuickBitePanel = forwardRef(
       setCart(null)
       setCartEnvelope(null)
       setCheckoutQr('')
+      setBrokenPaymentQr('')
+      setCheckoutWithoutTracking(false)
+      setCheckoutPayment('')
+      setOrderSubmitted(false)
       setLastCheckoutAction('')
       setFlowError(null)
       /*
@@ -1563,7 +1606,13 @@ const QuickBitePanel = forwardRef(
       setLoadingPhase('cart')
       setScreen('cart')
       setFocusKey('back')
-      const platform = selectedGroceryCard.platform || 'Zepto'
+      const platform = selectedGroceryCard.platform || ''
+      if (!platform) {
+        setLoadingPhase('')
+        setFlowError({ kind: 'cart', message: 'The selected product has no store, so it cannot be added to a provider cart safely.' })
+        setFocusKey('retry')
+        return
+      }
       const pack = selectedGroceryCard.pack_size ? ` (${selectedGroceryCard.pack_size})` : ''
       const prompt =
         `Order from ${platform}. ` +
@@ -1597,6 +1646,8 @@ const QuickBitePanel = forwardRef(
        action button that asks the agent something. The registry decides the
        screen; this only applies the model to the state that screen reads. */
     function showEnvelope(envelope, voiceTraceId = null) {
+      const replacePending = voicePendingRef.current && screenRef.current === 'text'
+      voicePendingRef.current = false
       if (voiceTraceId) voiceLog(voiceTraceId, 'QuickBite received backend envelope for screen conversion', envelope)
       let parsed
       try {
@@ -1630,7 +1681,7 @@ const QuickBitePanel = forwardRef(
         if (model.restaurant) {
           setSelectedRestaurant({ name: model.restaurant, platform: model.platform, rating: model.rating, eta: model.eta })
         }
-        setScreen('menu'); setFocusKey('menu-item-0'); return
+        setScreen('menu', { replace: replacePending }); setFocusKey('menu-item-0'); return
       }
       /* A stocked basket is a result, not a product list. It has its own
          screen because the grocery path's other screens each show one product,
@@ -1640,7 +1691,7 @@ const QuickBitePanel = forwardRef(
          neither. */
       if (next === 'gbasket') {
         setStockedBasket(model); setVertical('grocery')
-        setScreen('gbasket'); setFocusKey('gbasket-cart'); return
+        setScreen('gbasket', { replace: replacePending }); setFocusKey('gbasket-cart'); return
       }
       if (next === 'gresults') {
         setGroceryResults(model); setVertical('grocery')
@@ -1651,11 +1702,11 @@ const QuickBitePanel = forwardRef(
         if (firstFocusable < 0) {
           setFlowError({ kind: 'products', message: envelope?.text || 'No products were returned.' })
         }
-        setScreen('gresults'); setFocusKey(firstFocusable >= 0 ? `gresult-${firstFocusable}` : 'retry'); return
+        setScreen('gresults', { replace: replacePending }); setFocusKey(firstFocusable >= 0 ? `gresult-${firstFocusable}` : 'retry'); return
       }
       if (next === 'restaurant') {
         setRestaurants(model)
-        setScreen('restaurant'); setFocusKey('restaurant-0'); return
+        setScreen('restaurant', { replace: replacePending }); setFocusKey('restaurant-0'); return
       }
       // text, agent-cart, compare, basket-compare, spend
       /* A cart is grocery only when it is a grocery platform's: a Zomato or
@@ -1664,7 +1715,7 @@ const QuickBitePanel = forwardRef(
         /zepto|instamart/i.test(String(model?.platform || ''))
       if (groceryCart || kind === 'basket') setVertical('grocery')
       setWidgetModel(model)
-      setScreen(next)
+      setScreen(next, { replace: replacePending })
       setFocusKey(defaultFocusFor(next, model))
     }
     /* Ask the agent something from a widget button, then show whatever comes
@@ -1678,20 +1729,26 @@ const QuickBitePanel = forwardRef(
       setFocusKey('back')
       try {
         const envelope = await sendSilent(prompt)
+        const tracking = trackingFromEnvelope(envelope)
+        const confirmedCod = confirmedCodCheckout(envelope)
         /* Defence in depth. No widget button should reach an order (activate()
            routes order labels to the cart), but if the agent placed one anyway,
            the reply carries tracking or a payment QR. Show it the way
            submitCheckoutAction does - on `pay` - rather than leaving the user
            on a text screen while App's activeOrder effect, which moves only
            from `cart`, ignores it. */
-        const qr = paymentQrFromEnvelope(envelope)
-        if (envelope?.tracking || qr) {
+        const qr = paymentQrFromEnvelope(envelope, { allowImageFallback: Boolean(tracking) && !confirmedCod })
+        if (tracking || qr || confirmedCod) {
           const updatedCart = cartFromEnvelope(envelope)
           if (updatedCart) setCart(updatedCart)
           setCartEnvelope(envelope)
+          setCheckoutPayment(paymentMethodFromEnvelope(envelope))
           if (qr) setCheckoutQr(qr)
+          setCheckoutWithoutTracking(!tracking)
+          setOrderSubmitted(true)
+          if (!tracking) onClearActiveOrder?.()
           setLoadingPhase('')
-          setScreenAndFocus('pay', 'refresh-tracking')
+          setScreenAndFocus('pay', tracking ? 'refresh-tracking' : 'shop-more')
           return
         }
         showEnvelope(envelope)
@@ -1703,7 +1760,11 @@ const QuickBitePanel = forwardRef(
        it back — switching screens alone rendered an empty cart, because `cart`
        is only ever set from a backend cart envelope. */
     async function openPlatformCart(platform) {
-      platform = platform || stockedBasket?.platform || 'Zepto'
+      platform = platform || stockedBasket?.platform || ''
+      if (!platform) {
+        setNotice('The platform is missing. Please choose a store before opening its cart.')
+        return
+      }
       /* `cart`'s fixed parent is greview/review, which a user arriving from
          gbasket, agent-cart or a text/spend button never saw. Record the
          real origin so Back returns there (navigation.js backTarget). Retry
@@ -1712,6 +1773,10 @@ const QuickBitePanel = forwardRef(
       setCart(null)
       setCartEnvelope(null)
       setCheckoutQr('')
+      setBrokenPaymentQr('')
+      setCheckoutWithoutTracking(false)
+      setCheckoutPayment('')
+      setOrderSubmitted(false)
       setLastCheckoutAction('')
       setFlowError(null)
       setLoadingPhase('cart')
@@ -1723,6 +1788,19 @@ const QuickBitePanel = forwardRef(
         `Show the cart total and ask me to confirm before checkout.`
       try {
         const envelope = await sendSilent(prompt)
+        const tracking = trackingFromEnvelope(envelope)
+        const confirmedCod = confirmedCodCheckout(envelope)
+        const qr = paymentQrFromEnvelope(envelope, { allowImageFallback: Boolean(tracking) && !confirmedCod })
+        if (tracking || qr || confirmedCod) {
+          setCartEnvelope(envelope)
+          setCheckoutPayment(paymentMethodFromEnvelope(envelope))
+          if (qr) setCheckoutQr(qr)
+          setCheckoutWithoutTracking(!tracking)
+          setOrderSubmitted(true)
+          if (!tracking) onClearActiveOrder?.()
+          setScreenAndFocus('pay', tracking ? 'refresh-tracking' : 'shop-more')
+          return
+        }
         const normalizedCart = cartFromEnvelope(envelope)
         if (!normalizedCart) {
           throw new Error(envelope?.text || 'The backend did not return a cart.')
@@ -1759,11 +1837,14 @@ const QuickBitePanel = forwardRef(
       if (
         !cart ||
         !action ||
+        orderSubmitted ||
         loadingPhase ===
-        'checkout'
+        'checkout' ||
+        checkoutInFlightRef.current
       ) {
         return
       }
+      checkoutInFlightRef.current = true
       setLastCheckoutAction(
         action,
       )
@@ -1778,6 +1859,7 @@ const QuickBitePanel = forwardRef(
           await sendSilent(
             action,
           )
+        const tracking = trackingFromEnvelope(envelope)
         const updatedCart =
           cartFromEnvelope(
             envelope,
@@ -1790,9 +1872,12 @@ const QuickBitePanel = forwardRef(
         setCartEnvelope(
           envelope,
         )
+        setCheckoutPayment(paymentMethodFromEnvelope(envelope))
+        const confirmedCod = confirmedCodCheckout(envelope)
         const qr =
           paymentQrFromEnvelope(
             envelope,
+            { allowImageFallback: !confirmedCod },
           )
         if (qr) {
           setCheckoutQr(
@@ -1800,12 +1885,17 @@ const QuickBitePanel = forwardRef(
           )
         }
         if (
-          envelope?.tracking ||
-          qr
+          tracking ||
+          qr ||
+          confirmedCod
         ) {
+          const withoutTracking = !tracking
+          setCheckoutWithoutTracking(withoutTracking)
+          setOrderSubmitted(true)
+          if (withoutTracking) onClearActiveOrder?.()
           setScreenAndFocus(
             'pay',
-            'refresh-tracking',
+            withoutTracking ? 'shop-more' : 'refresh-tracking',
           )
           return
         }
@@ -1830,13 +1920,13 @@ const QuickBitePanel = forwardRef(
         setFlowError({
           kind:
             'checkout',
-          message:
-            error.message,
+          message: `${error.message} Checkout may have succeeded. Review the provider's order status before submitting again.`,
         })
         setFocusKey(
           'retry',
         )
       } finally {
+        checkoutInFlightRef.current = false
         setLoadingPhase('')
       }
     }
@@ -1872,24 +1962,19 @@ const QuickBitePanel = forwardRef(
         await openPlatformCart(flowError.platform)
         return
       }
-      if (
-        kind ===
-        'checkout' &&
-        lastCheckoutAction
-      ) {
-        /* Same gate as the focused press in activate(). Because a failed
-           checkout's flowError used to ride onto other screens, a button
-           labelled "Retry" could appear under "Couldn't load this menu" and
-           resubmit a payment the user was not being asked about. */
+      if (kind === 'checkout') {
+        /* An uncertain checkout response must never replay the charge/action.
+           Re-read the provider cart through the existing read-only prompt. */
         if (screen !== 'cart') {
-          setNotice(
-            'Open the cart to retry that payment.',
-          )
+          setNotice('Open the cart to review the provider status.')
           return
         }
-        await submitCheckoutAction(
-          lastCheckoutAction,
-        )
+        if (!cartPlatformName) {
+          setNotice('The order platform is unknown. Check the provider app before trying checkout again.')
+          return
+        }
+        setNotice('Checkout may already have succeeded. Verify in the provider app before placing another order.')
+        await openPlatformCart(cartPlatformName)
       }
     }
     function activate(key) {
@@ -2120,6 +2205,7 @@ const QuickBitePanel = forwardRef(
           screen !==
           'cart' ||
           flowError ||
+          orderSubmitted ||
           !Number.isInteger(
             index,
           ) ||
@@ -2156,6 +2242,10 @@ const QuickBitePanel = forwardRef(
         key ===
         'refresh-tracking'
       ) {
+        if (checkoutWithoutTracking) {
+          setNotice('The provider has not returned a tracking reference for this order.')
+          return
+        }
         return trackingState
           ?.refresh?.()
       }
@@ -2163,6 +2253,7 @@ const QuickBitePanel = forwardRef(
         key ===
         'track-order'
       ) {
+        suppressedTrackingPhaseRef.current = null
         return setScreenAndFocus(
           screenForTracking(
             trackingSnapshot,
@@ -2181,15 +2272,15 @@ const QuickBitePanel = forwardRef(
     function handleDirectionalKey(
       key,
     ) {
-      if (screen === 'mode' && (key === 'ArrowLeft' || key === 'ArrowRight')) {
+      if (screen === 'mode' && focusKey.startsWith('mode-') && (key === 'ArrowLeft' || key === 'ArrowRight')) {
         setFocusKey(focusKey === 'mode-food' ? 'mode-grocery' : 'mode-food')
         return
       }
-      if (screen === 'mode' && key === 'ArrowDown') {
+      if (screen === 'mode' && focusKey.startsWith('mode-') && key === 'ArrowDown') {
         setFocusKey('back')
         return
       }
-      if (screen === 'mode' && key === 'ArrowUp') {
+      if (screen === 'mode' && focusKey.startsWith('mode-') && key === 'ArrowUp') {
         return
       }
       if (screen === 'gcategory' && focusKey.startsWith('gcategory-')) {
@@ -2854,9 +2945,7 @@ const QuickBitePanel = forwardRef(
                       className="qb-restaurant-image"
                     />
                     <span className="qb-restaurant-copy">
-                      <span className="qb-grocery-platform" data-platform={card.platform}>
-                        {card.platform || 'Unknown store'}
-                      </span>
+                      <PlatformBadge platform={card.platform} compact />
                       <strong className="qb-grocery-name">{card.name}</strong>
                       <span className="qb-meta-row">
                         <Meta>{card.brand}</Meta>
@@ -2919,6 +3008,7 @@ const QuickBitePanel = forwardRef(
                     <span className="qb-basket-qty">× {l.count}</span>
                   )}
                   <span className="qb-basket-card-copy">
+                    <PlatformBadge platform={l.platform || b.platform} compact />
                     <span className="qb-basket-ask">
                       {l.query}{l.requested ? ` · ${l.requested}` : ''}
                     </span>
@@ -2996,9 +3086,7 @@ const QuickBitePanel = forwardRef(
                   className="qb-review-image"
                 />
                 <div>
-                  <span className="qb-grocery-platform" data-platform={card.platform}>
-                    {card.platform || 'Unknown store'}
-                  </span>
+                  <PlatformBadge platform={card.platform} compact />
                   <strong className="qb-grocery-name">{card.name}</strong>
                   <span className="qb-meta-row">
                     <Meta>{card.brand}</Meta>
@@ -3351,15 +3439,7 @@ const QuickBitePanel = forwardRef(
                           className="qb-restaurant-image"
                         />
                         <span className="qb-restaurant-copy">
-                          <span
-                            className="qb-restaurant-platform"
-                            data-platform={
-                              restaurant.platform
-                            }
-                          >
-                            {restaurant.platform ||
-                              'Unknown platform'}
-                          </span>
+                          <PlatformBadge platform={restaurant.platform} compact />
                           <strong>
                             {
                               restaurant.name
@@ -3493,7 +3573,9 @@ const QuickBitePanel = forwardRef(
                   flowError,
                 )
               }
-              focusKey={focusKey}
+              onRetry={retry}
+              focused={focusKey === 'retry'}
+              onFocus={() => setFocusKey('retry')}
             />
           )}
           {!flowError &&
@@ -3536,13 +3618,9 @@ const QuickBitePanel = forwardRef(
                           className="qb-restaurant-image"
                         />
                         <span className="qb-restaurant-copy">
+                          <PlatformBadge platform={item.platform || menu?.platform} compact />
                           {item.category && (
-                            <span
-                              className="qb-restaurant-platform"
-                              data-platform={
-                                menu?.platform
-                              }
-                            >
+                            <span className="qb-menu-category">
                               {
                                 item.category
                               }
@@ -3640,6 +3718,7 @@ const QuickBitePanel = forwardRef(
                     className="qb-review-image"
                   />
                   <div>
+                    <PlatformBadge platform={selectedRestaurant?.platform || menu?.platform} compact />
                     <p className="qb-overline">
                       {
                         selectedRestaurant?.name
@@ -3838,6 +3917,7 @@ const QuickBitePanel = forwardRef(
               onRetry={
                 retry
               }
+              retryLabel={flowError?.kind === 'checkout' ? 'Review cart' : 'Retry'}
               focused={
                 focusKey ===
                 'retry'
@@ -3877,6 +3957,7 @@ const QuickBitePanel = forwardRef(
                       className="qb-cart-image"
                     />
                     <div>
+                      <PlatformBadge platform={item.platform || cartPlatformName} compact />
                       <h3>
                         {
                           item.name
@@ -4094,9 +4175,9 @@ const QuickBitePanel = forwardRef(
                 checkoutActions.length ===
                 0 && (
                   <p className="qb-inline-notice">
-                    No checkout action
-                    was returned by the
-                    backend.
+                    {orderSubmitted
+                      ? 'Checkout was already submitted. Check the provider status before placing another order.'
+                      : 'No checkout action was returned by the backend.'}
                   </p>
                 )}
               <button
@@ -4128,11 +4209,14 @@ const QuickBitePanel = forwardRef(
             stage="pay"
           />
           {renderHeader(
-            orderIsQrPayable
+            paymentMode === 'qr'
               ? 'Pay on your Phone'
-              : 'Order Confirmed',
+              : paymentMode === 'cod'
+                ? 'Order Confirmed'
+                : 'Order Status',
           )}
           <div className="qb-pay">
+            <PlatformBadge platform={orderPlatformName} />
             {cartPaymentLabel && (
               <p className="qb-inline-notice">
                 Payment:{' '}
@@ -4141,7 +4225,7 @@ const QuickBitePanel = forwardRef(
                 }
               </p>
             )}
-            {!orderIsQrPayable ? (
+            {paymentMode === 'cod' ? (
               <div className="qb-cod-confirm">
                 <div className="qb-success-check">
                   ✓
@@ -4155,7 +4239,7 @@ const QuickBitePanel = forwardRef(
                   order arrives.
                 </p>
               </div>
-            ) : stableQr ? (
+            ) : stableQr && stableQr !== brokenPaymentQr ? (
               <>
                 <img
                   className="qb-payment-qr"
@@ -4163,20 +4247,26 @@ const QuickBitePanel = forwardRef(
                     stableQr
                   }
                   alt="Payment QR code"
+                  onError={() => setBrokenPaymentQr(stableQr)}
                 />
                 <p>
                   Scan with any UPI
                   app
                 </p>
               </>
-            ) : (
+            ) : paymentMode === 'qr' ? (
               <div className="qb-qr-wait">
                 <span className="qb-spinner" />
                 <p>
-                  Waiting for payment
-                  instructions from the
-                  provider…
+                  {stableQr && stableQr === brokenPaymentQr
+                    ? 'The provider’s payment QR could not be displayed. Check its app or refresh payment status.'
+                    : 'Waiting for payment instructions from the provider…'}
                 </p>
+              </div>
+            ) : (
+              <div className="qb-qr-wait">
+                <span className="qb-spinner" />
+                <p>Checking order and payment details with the provider…</p>
               </div>
             )}
             {cartTotal !=
@@ -4188,18 +4278,23 @@ const QuickBitePanel = forwardRef(
                 </p>
               )}
             <small>
-              {orderIsQrPayable
+              {paymentMode === 'qr'
                 ? 'Payment confirmation comes from the provider.'
-                : 'Nothing to pay now — your order is on its way.'}
+                : paymentMode === 'cod'
+                  ? 'Pay the delivery partner when the order arrives.'
+                  : 'Payment method will be shown when confirmed by the provider.'}
             </small>
-            {trackingState?.stale && (
+            {!checkoutWithoutTracking && trackingState?.stale && (
               <p className="qb-stale-warning">
                 {
                   trackingState.error
                 }
               </p>
             )}
-            <button
+            {checkoutWithoutTracking && (
+              <p className="qb-stale-warning">The provider did not return a tracking reference. Check its app for this order's live status.</p>
+            )}
+            {!checkoutWithoutTracking && <button
               className={`qb-secondary-button ${
                 focusKey ===
                   'refresh-tracking'
@@ -4213,7 +4308,7 @@ const QuickBitePanel = forwardRef(
               {trackingState?.polling
                 ? 'Checking…'
                 : 'Check payment status'}
-            </button>
+            </button>}
             <button
               className={`qb-text-button ${
                 focusKey ===
@@ -4242,8 +4337,9 @@ const QuickBitePanel = forwardRef(
               ✓
             </div>
             <h1>
-              Payment received
+              {paymentMode === 'qr' ? 'Payment received' : 'Order confirmed'}
             </h1>
+            <PlatformBadge platform={orderPlatformName} />
             {cartTotal !=
               null && (
                 <p className="qb-payment-amount">
@@ -4253,8 +4349,7 @@ const QuickBitePanel = forwardRef(
                 </p>
               )}
             <h2>
-              Your order is
-              Confirmed
+              {paymentMode === 'qr' ? 'Your order is confirmed' : 'Track your delivery below'}
             </h2>
             {trackingText(
               trackingSnapshot,
@@ -4352,6 +4447,7 @@ const QuickBitePanel = forwardRef(
                 </p>
               )}
             <div className="qb-order-status-card">
+              <PlatformBadge platform={orderPlatformName} />
               {(
                 trackingSnapshot?.restaurant_name ||
                 selectedRestaurant?.name ||
@@ -4470,6 +4566,7 @@ const QuickBitePanel = forwardRef(
             <h1>
               Order cancelled
             </h1>
+            <PlatformBadge platform={orderPlatformName} />
             <p>
               {
                 trackingSnapshot?.message ||

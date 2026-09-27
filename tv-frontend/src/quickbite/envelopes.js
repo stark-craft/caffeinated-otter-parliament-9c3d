@@ -31,7 +31,22 @@ export function imageDataUri(image) {
     image.mime || image.mime_type || image.content_type || "image/png";
   return `data:${mime};base64,${image.data}`;
 }
-export function paymentQrFromEnvelope(envelope) {
+export function trackingFromEnvelope(envelope) {
+  const direct = asObject(envelope?.tracking);
+  if (Object.keys(direct).length) return direct;
+  const nested = asObject(asObject(envelope?.payload).tracking);
+  return Object.keys(nested).length ? nested : null;
+}
+export function paymentQrFromEnvelope(envelope, { allowImageFallback = true } = {}) {
+  const payload = asObject(envelope?.payload);
+  const tracking = asObject(trackingFromEnvelope(envelope));
+  const explicit =
+    envelope?.payment_qr || envelope?.qr || envelope?.qr_code ||
+    payload.payment_qr || payload.qr || payload.qr_code ||
+    tracking.payment_qr || tracking.qr || tracking.qr_code;
+  const direct = imageDataUri(explicit);
+  if (direct) return direct;
+  if (!allowImageFallback) return "";
   const images = asArray(envelope?.images);
   return imageDataUri(images[images.length - 1]);
 }

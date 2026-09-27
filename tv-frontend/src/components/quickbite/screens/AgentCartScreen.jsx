@@ -1,4 +1,5 @@
 import { CART_PREVIEW } from "../../../quickbite/widgetScreens.js";
+import PlatformBadge from '../PlatformBadge.jsx';
 const rupees = (n) =>
   typeof n === "number"
     ? `₹${n.toLocaleString("en-IN")}`
@@ -21,6 +22,7 @@ export default function AgentCartScreen({
         model.caption,
         `${model.lines.length} items`,
       )}
+      <PlatformBadge platform={model.platform} />
       <ul className="qb-cart-lines">
         {shown.map((line, i) => (
           <li
@@ -34,6 +36,7 @@ export default function AgentCartScreen({
               fallback="🛒"
             />
             <span className="qb-cart-line-name">
+              <PlatformBadge platform={model.platform} compact />
               {line.name}
               {line.pack_size && (
                 <em className="qb-cart-line-pack">{line.pack_size}</em>

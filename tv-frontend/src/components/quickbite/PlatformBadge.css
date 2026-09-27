@@ -1,0 +1,51 @@
+.qb-platform-badge {
+  --platform-color: #8a96a7;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 30px;
+  border: 1px solid rgba(255, 255, 255, .2);
+  border-radius: 999px;
+  padding: 3px 10px 3px 4px;
+  background: rgba(255, 255, 255, .06);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.qb-platform-zomato { --platform-color: #e23744; }
+.qb-platform-swiggy { --platform-color: #fc8019; }
+.qb-platform-instamart { --platform-color: #fc8019; }
+.qb-platform-zepto { --platform-color: #8144e4; }
+
+.qb-platform-mark {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--platform-color);
+  color: #fff;
+  font-size: 17px;
+  font-weight: 900;
+  font-style: italic;
+  line-height: 1;
+}
+
+.qb-platform-name { overflow: hidden; text-overflow: ellipsis; }
+.qb-platform-badge.is-compact { min-height: 26px; font-size: 12px; }
+.qb-platform-badge.is-compact .qb-platform-mark { width: 18px; height: 18px; font-size: 14px; }
+
+.qb-menu-category { color: var(--qb-text-secondary); font-size: 12px; font-weight: 700; }
+
+.qb-cart-item .qb-platform-badge,
+.qb-cart-line .qb-platform-badge,
+.qb-review-card .qb-platform-badge,
+.qb-order-status-card .qb-platform-badge {
+  margin: 3px 0 5px;
+}

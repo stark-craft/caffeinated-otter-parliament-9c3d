@@ -1,3 +1,4 @@
+import PlatformBadge from '../PlatformBadge.jsx';
 const rupees = (n) =>
   typeof n === "number" ? `₹${n.toLocaleString("en-IN")}` : "—";
 export default function CompareScreen({
@@ -32,7 +33,7 @@ export default function CompareScreen({
               className="qb-compare-img"
               fallback="🛒"
             />
-            <p className="qb-compare-platform">{e.platform}</p>
+            <PlatformBadge platform={e.platform} compact />
             <p className="qb-compare-name">
               {e.name}
               {e.pack_size ? ` · ${e.pack_size}` : ""}

@@ -1,3 +1,4 @@
+import PlatformBadge from '../PlatformBadge.jsx';
 const rupees = (n) =>
   typeof n === "number" ? `₹${n.toLocaleString("en-IN")}` : "—";
 export default function SpendScreen({
@@ -36,7 +37,7 @@ export default function SpendScreen({
               className={p.available ? "" : "is-unavailable"}
             >
               <i className={`qb-spend-dot ${dotClass}`} />
-              <span>{p.platform}</span>
+              <PlatformBadge platform={p.platform} compact />
               <span>
                 {p.available
                   ? `${rupees(p.total)} · ${p.orders ?? 0} orders`
