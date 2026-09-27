@@ -1,5 +1,6 @@
 import axios from "axios";
 import { API_BASE_URL } from "../config/api";
+import { logApiFailure, logApiRequest, logApiResponse } from "../../../src/apiDiagnostics.js";
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
   timeout: 15000,
@@ -7,9 +8,28 @@ const apiClient = axios.create({
     "Content-Type": "application/json",
   },
 });
+apiClient.interceptors.request.use((config) => {
+  const url = new URL(apiClient.getUri(config), window.location.href).href;
+  config.commagentTrace = logApiRequest("Phone", (config.method || "GET").toUpperCase(), url, config.data, {
+    headers: config.headers,
+    timeoutMs: config.timeout,
+  });
+  return config;
+});
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    logApiResponse(response.config.commagentTrace, response.status, response.data);
+    return response;
+  },
   (error) => {
+    const trace = error.config?.commagentTrace;
+    if (trace) {
+      logApiFailure(trace, {
+        status: error.response?.status,
+        responseBody: error.response?.data,
+        error,
+      });
+    }
     const message =
       error.response?.data?.detail ||
       error.response?.data?.message ||

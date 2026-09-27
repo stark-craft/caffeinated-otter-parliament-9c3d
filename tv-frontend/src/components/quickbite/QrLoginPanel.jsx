@@ -27,6 +27,24 @@ const QrLoginPanel = forwardRef(function QrLoginPanel({
   const [focusAction, setFocusAction] = useState('close')
 
   useEffect(() => {
+    if (!open || !mobileUrl) return
+    console.log(`[CommAgent QR] Exact phone login URL encoded in the QR (you can type this on your phone): ${mobileUrl}`)
+  }, [open, mobileUrl])
+
+  useEffect(() => {
+    if (!open || mobileUrl) return
+    const details = {
+      configuredPhonePage: MOBILE_APP_URL,
+      expectedBackendCall: 'POST /api/qr/session → { session_id: "..." }',
+      checkingMerchantConnections: !ready,
+      requestingQrSession: loading,
+      error: error || null,
+    }
+    if (error) console.error('[CommAgent QR] Cannot display login QR yet', details)
+    else console.log('[CommAgent QR] Waiting for a backend QR session ID', details)
+  }, [open, mobileUrl, ready, loading, error])
+
+  useEffect(() => {
     if (open) setFocusAction(canRetry ? 'retry' : 'close')
   }, [open, canRetry])
 

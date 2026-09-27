@@ -1,3 +1,5 @@
+import { logApiFailure, logApiRequest, logApiResponse } from './apiDiagnostics.js'
+
 const BACKEND_ORIGIN = (
   import.meta.env.VITE_API_BASE_URL || '')
   .trim()
@@ -19,12 +21,29 @@ function apiUrl(path) {
   return `${BACKEND_ORIGIN}/api${path}`
 }
 
+async function backendErrorBody(response) {
+  try {
+    const text = await response.text()
+    if (!text) return null
+    try { return JSON.parse(text) } catch { return text }
+  } catch (error) {
+    return `Could not read backend error body: ${error.message}`
+  }
+}
+
 async function post(path, body, timeoutMs) {
   const controller = timeoutMs ? new AbortController() : null
   const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null
+  const url = apiUrl(path)
+  const trace = logApiRequest('TV', 'POST', url, body, {
+    headers: { 'Content-Type': 'application/json' },
+    timeoutMs: timeoutMs || null,
+  })
+  let failureLogged = false
+  let responseStatus = null
   try {
     const r = await fetch(
-      apiUrl(path),
+      url,
       {
         method: 'POST',
         headers: {
@@ -34,14 +53,22 @@ async function post(path, body, timeoutMs) {
         ...(controller ? { signal: controller.signal } : {}),
       },
     )
+    responseStatus = r.status
 
     if (!r.ok) {
+      logApiFailure(trace, { status: r.status, responseBody: await backendErrorBody(r) })
+      failureLogged = true
       throw new Error(
         `${path} -> HTTP ${r.status}`,
       )
     }
 
-    return r.json()
+    const data = await r.json()
+    logApiResponse(trace, r.status, data)
+    return data
+  } catch (error) {
+    if (!failureLogged) logApiFailure(trace, { status: responseStatus, error })
+    throw error
   } finally {
     if (timeout) clearTimeout(timeout)
   }
@@ -50,10 +77,24 @@ async function post(path, body, timeoutMs) {
 async function get(path) {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 8000)
+  const url = apiUrl(path)
+  const trace = logApiRequest('TV', 'GET', url, null, { timeoutMs: 8000 })
+  let failureLogged = false
+  let responseStatus = null
   try {
-    const r = await fetch(apiUrl(path), { signal: controller.signal })
-    if (!r.ok) throw new Error(`${path} -> HTTP ${r.status}`)
-    return r.json()
+    const r = await fetch(url, { signal: controller.signal })
+    responseStatus = r.status
+    if (!r.ok) {
+      logApiFailure(trace, { status: r.status, responseBody: await backendErrorBody(r) })
+      failureLogged = true
+      throw new Error(`${path} -> HTTP ${r.status}`)
+    }
+    const data = await r.json()
+    logApiResponse(trace, r.status, data)
+    return data
+  } catch (error) {
+    if (!failureLogged) logApiFailure(trace, { status: responseStatus, error })
+    throw error
   } finally {
     clearTimeout(timeout)
   }
@@ -180,19 +221,37 @@ export async function sttTranscribe(
     )
   }
 
-  const r = await fetch(
-    apiUrl('/stt'),
-    {
-      method: 'POST',
-      body: form,
-    },
-  )
-
-  if (!r.ok) {
-    throw new Error(
-      `/stt -> HTTP ${r.status}`,
+  const url = apiUrl('/stt')
+  const trace = logApiRequest('TV', 'POST', url, {
+    formData: form,
+    file: { name: `voice.${subtype}`, type: blob.type, size: blob.size },
+    keyterms,
+  }, {
+    contentType: 'multipart/form-data (boundary set by the browser)',
+  })
+  let failureLogged = false
+  let responseStatus = null
+  try {
+    const r = await fetch(
+      url,
+      {
+        method: 'POST',
+        body: form,
+      },
     )
-  }
+    responseStatus = r.status
 
-  return r.json()
+    if (!r.ok) {
+      logApiFailure(trace, { status: r.status, responseBody: await backendErrorBody(r) })
+      failureLogged = true
+      throw new Error(`/stt -> HTTP ${r.status}`)
+    }
+
+    const data = await r.json()
+    logApiResponse(trace, r.status, data)
+    return data
+  } catch (error) {
+    if (!failureLogged) logApiFailure(trace, { status: responseStatus, error })
+    throw error
+  }
 }
