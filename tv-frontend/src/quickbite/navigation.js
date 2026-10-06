@@ -91,3 +91,16 @@ export function qrFocusAfterArrow(current, key, canRetry) {
   if (key === 'ArrowDown' || key === 'ArrowRight') return 'close'
   return current
 }
+
+export function editableCartFocusAfterArrow(current, key, count) {
+  const match = String(current).match(/^acart-(minus|plus)-(\d+)$/)
+  if (current === 'acart-checkout' && key === 'ArrowUp' && count) return `acart-plus-${count - 1}`
+  if (!match) return null
+  const [, side, row] = match
+  const index = Number(row)
+  if (key === 'ArrowLeft') return `acart-minus-${index}`
+  if (key === 'ArrowRight') return `acart-plus-${index}`
+  if (key === 'ArrowUp') return index ? `acart-${side}-${index - 1}` : current
+  if (key === 'ArrowDown') return index + 1 < count ? `acart-${side}-${index + 1}` : 'acart-checkout'
+  return null
+}

@@ -9,8 +9,7 @@ import QuickBiteLogo from './QuickBiteLogo.jsx'
 import PlatformBadge from './PlatformBadge.jsx'
 import {
   QUICKBITE_CATEGORIES,
-  QUICKBITE_DISHES,
-  dishSearchPrompt,} from '../../quickbite/catalog.js'
+  QUICKBITE_DISHES,} from '../../quickbite/catalog.js'
 import {
   cartFromEnvelope,
   chooseMenuItem,
@@ -26,23 +25,26 @@ import {
   screenForTracking,
   trackingPhase,
   trackingText,} from '../../quickbite/tracking.js'
-import { backTarget, recordScreenVisit, takePreviousScreen } from '../../quickbite/navigation.js'
+import { backTarget, recordScreenVisit, takePreviousScreen, editableCartFocusAfterArrow } from '../../quickbite/navigation.js'
+import { agentCartEditPrompt, editAgentCartQuantity } from '../../quickbite/agentCart.js'
 import { missLabel } from '../../quickbite/missLabels.js'
 import { matchedDishLines, notFoundLabel } from '../../quickbite/restaurantMatch.js'
 import { routeIntent } from '../../quickbite/intents.js'
 import { buildView } from '../../quickbite/viewContext.js'
 import ConfirmStrip from './ConfirmStrip.jsx'
 import {
-  defaultFocusFor, focusKeysFor, isOrderAction, platformMentioned, screenForEnvelope,} from '../../quickbite/widgetScreens.js'
+  NEW_SCREENS, defaultFocusFor, focusKeysFor, isOrderAction, isCartDestructiveAction, platformMentioned, screenForEnvelope,} from '../../quickbite/widgetScreens.js'
 import TextScreen from './screens/TextScreen.jsx'
 import AgentCartScreen from './screens/AgentCartScreen.jsx'
 import CompareScreen from './screens/CompareScreen.jsx'
 import BasketCompareScreen from './screens/BasketCompareScreen.jsx'
 import SpendScreen from './screens/SpendScreen.jsx'
-import { GROCERY_CATEGORIES, GROCERY_PRODUCTS, productSearchPrompt } from '../../quickbite/groceryCatalog.js'
+import { GROCERY_CATEGORIES, GROCERY_PRODUCTS } from '../../quickbite/groceryCatalog.js'
 import { HOME_BACKDROP, MODE_TILES } from '../../quickbite/heroArt.js'
 import { confirmedCodCheckout, orderPlatform, paymentMethodFromEnvelope, paymentPresentation } from '../../quickbite/payMode.js'
 import { voiceError, voiceLog, voiceWarn } from '../../quickbite/voiceDiagnostics.js'
+import { PROVIDERS, providerId, responseProviders } from '../../quickbite/providers.js'
+import { commerceLog } from '../../quickbite/commerceDiagnostics.js'
 const ORDER_SCREENS = new Set([
   'pay',
   'payment-received',
@@ -329,6 +331,10 @@ const QuickBitePanel = forwardRef(
     const handleKeyRef = useRef(null)
     const lastVoiceTraceRef = useRef(null)
     const checkoutInFlightRef = useRef(false)
+    const widgetModelsRef = useRef({})
+    const journeyEpochRef = useRef(0)
+    const widgetActionRef = useRef(null)
+    const cartEditInFlightRef = useRef(null)
     const [screen, setScreenState] =
       useState('home')
     const screenRef = useRef('home')
@@ -342,6 +348,7 @@ const QuickBitePanel = forwardRef(
       screenHistoryRef.current = recordScreenVisit(screenHistoryRef.current, previous, next, options)
       if (next === 'home') screenHistoryRef.current = []
       screenRef.current = next
+      if (NEW_SCREENS.includes(next)) setWidgetModelState(widgetModelsRef.current[next] || null)
       setScreenState(next)
     }
     // Which path the user walked in on. Decides the grocery/food branch on the
@@ -423,10 +430,14 @@ const QuickBitePanel = forwardRef(
        focused. Cleared on navigation and on submission so it cannot linger. */
     const [awaitingConfirm, setAwaitingConfirm] = useState(null)
     const [lastRequest, setLastRequest] = useState(null)
-    /* The model for whichever agent widget screen is showing (text,
-       agent-cart, compare, basket-compare, spend). Only one is visible at a
-       time, so one slot. */
-    const [widgetModel, setWidgetModel] = useState(null)
+    // Models survive Back within a journey; independent discovery clears them.
+    const [widgetModel, setWidgetModelState] = useState(null)
+    function setWidgetModel(value, target = screenRef.current) {
+      const previous = widgetModelsRef.current[target] || widgetModel
+      const model = typeof value === 'function' ? value(previous) : value
+      if (model && NEW_SCREENS.includes(target)) widgetModelsRef.current[target] = model
+      setWidgetModelState(model)
+    }
     const [cartExpanded, setCartExpanded] = useState(false)
     /* Memoised because the panel reports these upward on every change: a
        fresh `[]` each render would re-fire that effect forever. */
@@ -463,8 +474,8 @@ const QuickBitePanel = forwardRef(
         'cancelled',
       ].includes(livePhase)
         ? ''
-        : checkoutQr ||
-          (checkoutWithoutTracking ? '' : trackingState?.qr || imageDataUri(activeOrder?.qr))
+        : (checkoutWithoutTracking ? '' : trackingState?.qr) || checkoutQr ||
+          (checkoutWithoutTracking ? '' : imageDataUri(activeOrder?.qr))
     const cartTotal =
       cart?.total
     const checkoutActions =
@@ -485,13 +496,16 @@ const QuickBitePanel = forwardRef(
       restaurant: vertical === 'food' ? selectedRestaurant : null,
     })
     const orderPlatformName = ORDER_SCREENS.has(screen) && !checkoutWithoutTracking
-      ? orderPlatform({ tracking: { platform: trackingSnapshot?.platform || activeOrder?.tracking?.platform }, cart, groceryCard: vertical === 'grocery' ? selectedGroceryCard : null, restaurant: vertical === 'food' ? selectedRestaurant : null })
+      ? orderPlatform({ tracking: { platform: trackingSnapshot?.platform || activeOrder?.tracking?.platform, server: trackingSnapshot?.server || activeOrder?.tracking?.server }, cart, groceryCard: vertical === 'grocery' ? selectedGroceryCard : null, restaurant: vertical === 'food' ? selectedRestaurant : null })
       : cartPlatformName
     const paymentMode = paymentPresentation({
       platform: orderPlatformName,
       payment: trackingSnapshot?.payment || trackingSnapshot?.payment_method || checkoutPayment || activeOrder?.tracking?.payment || activeOrder?.tracking?.payment_method || cart?.payment,
       qr: checkoutQr || (checkoutWithoutTracking ? '' : trackingState?.qr || activeOrder?.qr || trackingSnapshot?.payment_qr),
     })
+    const missingZomatoInstructions = orderSubmitted && paymentMode === 'qr' &&
+      providerId(orderPlatformName) === 'zomato' && !stableQr
+    const waitingForInstructions = missingZomatoInstructions && trackingState?.polling && !trackingState?.completedPolls
     const contentKeys =
       useMemo(() => {
         if (['text', 'agent-cart', 'compare', 'basket-compare', 'spend'].includes(screen)) {
@@ -688,14 +702,14 @@ const QuickBitePanel = forwardRef(
     useEffect(() => {
       onPanelState?.({
         screen, vertical, focusKey, restaurants, groceryResults, cart,
-        products, dishes, menuItems: menu?.items || [], selectedGroceryCard,
+        products, dishes, menuItems: menu?.items || [], selectedGroceryCard, widgetModel,
         // sourceFor reads these; omitting them left both category grids with
         // an empty snapshot, so "the second one" answered "Nothing to choose
         // from yet" with four tiles on screen.
         categories: QUICKBITE_CATEGORIES, groceryCategories: GROCERY_CATEGORIES,
       })
     }, [screen, vertical, focusKey, restaurants, groceryResults, cart,
-        products, dishes, menu, selectedGroceryCard, onPanelState])
+        products, dishes, menu, selectedGroceryCard, widgetModel, onPanelState])
     useEffect(() => {
       const traceId = lastVoiceTraceRef.current
       if (!traceId) return
@@ -714,7 +728,7 @@ const QuickBitePanel = forwardRef(
     function currentView() {
       return buildView({
         screen, vertical, focusKey, restaurants, groceryResults, cart,
-        products, dishes, menuItems: menu?.items || [], selectedGroceryCard,
+        products, dishes, menuItems: menu?.items || [], selectedGroceryCard, widgetModel,
         categories: QUICKBITE_CATEGORIES, groceryCategories: GROCERY_CATEGORIES,
         activeOrder,
       })
@@ -882,6 +896,10 @@ const QuickBitePanel = forwardRef(
         // answer. Keep the query for a possible restaurant result, but do not
         // show a restaurant page before the envelope tells us its real kind.
         const query = String(intent?.slots?.query || '').trim()
+        if (intent.journey === 'new-search') {
+          resetSearchContext(intent.slots?.vertical || 'food')
+          screenHistoryRef.current = []
+        }
         if (query) {
           setSelectedCategory(null)
           /* `fromSearch` distinguishes this from a dish picked off the
@@ -894,19 +912,18 @@ const QuickBitePanel = forwardRef(
         setFlowError(null)
         if (!decision.awaitConfirm) retireAwaitingConfirm()
         setWidgetModel(null)
-        setLoadingPhase('agent'); setScreen('text'); setFocusKey('back'); return
+        setLoadingPhase('agent'); setScreen('text', { replace: intent.journey === 'new-search' }); setFocusKey('back'); return
       }
       if (intent?.error) {
         if (traceId) voiceWarn(traceId, 'QuickBite showing backend/request error', { error: intent.error, screen })
         /* The neutral loading screen needs a visible error and a Retry action
            that resends the original request, regardless of its vertical. */
-        if (screen === 'gresults' || screen === 'text') {
-          showEnvelope({ widget: 'hologram', text: intent.error }, traceId)
-          return
-        }
         setLoadingPhase('')
-        setFlowError({ kind: 'restaurants', message: intent.error })
-        setFocusKey('retry')
+        setFlowError(null)
+        setWidgetModel({ overline: 'QuickBite', title: intent.error, bullets: [], actions: [], retry: true,
+          reconnectProvider: intent.reconnectProvider || null, error: true }, 'text')
+        setScreen('text')
+        setFocusKey(intent.reconnectProvider ? 'reconnect-provider' : 'retry')
         return
       }
       if (decision.action) {
@@ -1001,6 +1018,11 @@ const QuickBitePanel = forwardRef(
         )
         return
       }
+      if (livePhase === 'pay' && screen !== 'pay') {
+        setScreen('pay')
+        setFocusKey('refresh-tracking')
+        return
+      }
       if (
         screen ===
         'preparing' &&
@@ -1064,11 +1086,11 @@ const QuickBitePanel = forwardRef(
           : 'retry',
         greview: 'add-gcart',
         gbasket: 'gbasket-cart',
-        text: defaultFocusFor('text', widgetModel),
-        'agent-cart': defaultFocusFor('agent-cart', widgetModel),
-        compare: defaultFocusFor('compare', widgetModel),
-        'basket-compare': defaultFocusFor('basket-compare', widgetModel),
-        spend: defaultFocusFor('spend', widgetModel),
+        text: defaultFocusFor('text', widgetModelsRef.current.text),
+        'agent-cart': defaultFocusFor('agent-cart', widgetModelsRef.current['agent-cart']),
+        compare: defaultFocusFor('compare', widgetModelsRef.current.compare),
+        'basket-compare': defaultFocusFor('basket-compare', widgetModelsRef.current['basket-compare']),
+        spend: defaultFocusFor('spend', widgetModelsRef.current.spend),
         category:
           'category-0',
         dish:
@@ -1119,6 +1141,9 @@ const QuickBitePanel = forwardRef(
         onClose()
         return
       }
+      journeyEpochRef.current += 1
+      widgetActionRef.current = null
+      cartEditInFlightRef.current = null
       setFlowError(null)
       setLoadingPhase('')
       retireAwaitingConfirm()
@@ -1184,8 +1209,9 @@ const QuickBitePanel = forwardRef(
         const index = indexOf(action.args.itemId)
         setQuantity(quantity)
         if (vertical === 'grocery') {
-          if (index >= 0 && groceryResults[index]) setSelectedGroceryCard(groceryResults[index])
-          return addGroceryToCart()
+          const card = screen === 'greview' ? selectedGroceryCard : groceryResults[index]
+          if (card) setSelectedGroceryCard(card)
+          return addGroceryToCart(card, quantity)
         }
         // The food path needs a menu before an item can be added, so a card
         // that has not been opened yet is selected first; the review screen is
@@ -1193,7 +1219,7 @@ const QuickBitePanel = forwardRef(
         if (index >= 0 && restaurants[index] && restaurants[index] !== selectedRestaurant) {
           return selectRestaurant(restaurants[index])
         }
-        return addToCart()
+        return addToCart(quantity)
       }
       if (action.name === 'changeQty') {
         const quantity = Math.max(1, Number(action.args.quantity) || 1)
@@ -1225,6 +1251,10 @@ const QuickBitePanel = forwardRef(
       if (!option) return
       setConfirmStrip(null)
       setStripIndex(0)
+      if (option.intent === 'cart-destructive') {
+        if (option.fromCheckout) return submitCheckoutAction(option.backendLabel)
+        return askFromWidget(option.backendLabel)
+      }
       if (option.intent === 'stop') return
       if (option.retry && lastRequest) {
         onRetryRequest?.(lastRequest)
@@ -1294,12 +1324,37 @@ const QuickBitePanel = forwardRef(
       }
       return setScreenAndFocus(selectedCategory ? 'dish' : 'category', undefined, { replace: finishedOrder })
     }
+    function resetSearchContext(nextVertical) {
+      journeyEpochRef.current += 1
+      widgetActionRef.current = null
+      cartEditInFlightRef.current = null
+      widgetModelsRef.current = {}
+      setVertical(nextVertical)
+      setSelectedRestaurant(null)
+      setMenu(null)
+      setSelectedItem(null)
+      setSelectedVariantIndex(0)
+      setQuantity(1)
+      setSelectedGroceryCard(null)
+      setSelectedProduct(null)
+      setGroceryResults([])
+      setStockedBasket(null)
+      setRestaurants([])
+      setCart(null)
+      setCartEnvelope(null)
+      setWidgetModel(null)
+      setCheckoutQr('')
+      setCheckoutPayment('')
+      setBrokenPaymentQr('')
+      setCheckoutWithoutTracking(false)
+    }
     async function selectDish(
       dish = currentDish,
     ) {
       if (!dish) {
         return
       }
+      resetSearchContext('food')
       setSelectedDish(dish)
       setRestaurants([])
       setFlowError(null)
@@ -1310,17 +1365,18 @@ const QuickBitePanel = forwardRef(
         'restaurant',
         'back',
       )
+      let superseded = false
       try {
         const envelope =
           await sendSilent(
-            dishSearchPrompt(
-              dish,
-            ),
+            `Find restaurants for ${dish.name} near me.`,
+            { searchVertical: 'food' },
           )
         const cards =
           restaurantCardsFromEnvelope(
             envelope,
           )
+        commerceLog('rendered', { screen: 'restaurant', providers: responseProviders(envelope) })
         setRestaurants(cards)
         setFlowError(
           cards.length
@@ -1339,6 +1395,7 @@ const QuickBitePanel = forwardRef(
             : 'retry',
         )
       } catch (error) {
+        if (error.kind === 'superseded-search') { superseded = true; return }
         setFlowError({
           kind:
             'restaurants',
@@ -1349,20 +1406,23 @@ const QuickBitePanel = forwardRef(
           'retry',
         )
       } finally {
-        setLoadingPhase('')
+        if (!superseded) setLoadingPhase('')
       }
     }
     async function selectProduct(product = currentProduct) {
       if (!product) return
+      resetSearchContext('grocery')
       setSelectedProduct(product)
       setGroceryResults([])
       setSelectedGroceryCard(null)
       setFlowError(null)
       setLoadingPhase('products')
       setScreenAndFocus('gresults', 'back')
+      let superseded = false
       try {
-        const envelope = await sendSilent(productSearchPrompt(product))
+        const envelope = await sendSilent(`Find ${product.name} near me.`, { searchVertical: 'grocery' })
         const cards = groceryCardsFromEnvelope(envelope)
+        commerceLog('rendered', { screen: 'gresults', providers: responseProviders(envelope) })
         setGroceryResults(cards)
         // Skip straight past any out-of-stock cards at the head of the list —
         // they are excluded from contentKeys, so landing focus on one would be
@@ -1385,10 +1445,11 @@ const QuickBitePanel = forwardRef(
         )
         setFocusKey(firstFocusable >= 0 ? `gresult-${firstFocusable}` : 'retry')
       } catch (error) {
+        if (error.kind === 'superseded-search') { superseded = true; return }
         setFlowError({ kind: 'products', message: error.message })
         setFocusKey('retry')
       } finally {
-        setLoadingPhase('')
+        if (!superseded) setLoadingPhase('')
       }
     }
     async function selectRestaurant(
@@ -1493,7 +1554,7 @@ const QuickBitePanel = forwardRef(
         setLoadingPhase('')
       }
     }
-    async function addToCart() {
+    async function addToCart(count = quantity) {
       if (
         !selectedRestaurant ||
         !selectedItem
@@ -1540,7 +1601,7 @@ const QuickBitePanel = forwardRef(
       const prompt =
         `Order from ${restaurant} on ${platform}. ` +
         `Add EXACTLY these items to my cart: ` +
-        `${quantity}× ${selectedItem.name}${variantText}. ` +
+        `${count}× ${selectedItem.name}${variantText}. ` +
         `Do NOT ask me to re-pick items or variants. ` +
         `Show the cart total and ask me to confirm before checkout.`
       try {
@@ -1586,8 +1647,8 @@ const QuickBitePanel = forwardRef(
         setLoadingPhase('')
       }
     }
-    async function addGroceryToCart() {
-      if (!selectedGroceryCard) {
+    async function addGroceryToCart(card = selectedGroceryCard, count = quantity) {
+      if (!card) {
         return
       }
       setCart(null)
@@ -1606,18 +1667,18 @@ const QuickBitePanel = forwardRef(
       setLoadingPhase('cart')
       setScreen('cart')
       setFocusKey('back')
-      const platform = selectedGroceryCard.platform || ''
+      const platform = card.platform || ''
       if (!platform) {
         setLoadingPhase('')
         setFlowError({ kind: 'cart', message: 'The selected product has no store, so it cannot be added to a provider cart safely.' })
         setFocusKey('retry')
         return
       }
-      const pack = selectedGroceryCard.pack_size ? ` (${selectedGroceryCard.pack_size})` : ''
+      const pack = card.pack_size ? ` (${card.pack_size})` : ''
       const prompt =
         `Order from ${platform}. ` +
         `Add EXACTLY these items to my cart: ` +
-        `${quantity}× ${selectedGroceryCard.name}${pack}. ` +
+        `${count}× ${card.name}${pack}. ` +
         `Do NOT ask me to re-pick items or variants. ` +
         `Show the cart total and ask me to confirm before checkout.`
       try {
@@ -1657,6 +1718,7 @@ const QuickBitePanel = forwardRef(
         throw error
       }
       const { kind, screen: next, model } = parsed
+      commerceLog('rendered', { screen: next, providers: responseProviders(envelope) })
       if (voiceTraceId) voiceLog(voiceTraceId, 'QuickBite envelope → card/screen model', { kind, screen: next, model })
       setLoadingPhase('')
       /* A strip or a confirmation raised by the previous utterance would
@@ -1673,6 +1735,7 @@ const QuickBitePanel = forwardRef(
          to render them as restaurant cards under "Choose a Restaurant",
          imageless because it read image_url off the wrong shape. */
       if (next === 'menu') {
+        setVertical('food')
         setMenu(model)
         /* The user asked for a restaurant, not a dish. Leaving the spoken
            query in selectedDish sent retry() down the single-item review
@@ -1705,16 +1768,18 @@ const QuickBitePanel = forwardRef(
         setScreen('gresults', { replace: replacePending }); setFocusKey(firstFocusable >= 0 ? `gresult-${firstFocusable}` : 'retry'); return
       }
       if (next === 'restaurant') {
+        setVertical('food')
         setRestaurants(model)
         setScreen('restaurant', { replace: replacePending }); setFocusKey('restaurant-0'); return
       }
       // text, agent-cart, compare, basket-compare, spend
       /* A cart is grocery only when it is a grocery platform's: a Zomato or
          Swiggy food cart must keep the food path (Back, retry, vertical). */
-      const groceryCart = kind === 'cart' &&
-        /zepto|instamart/i.test(String(model?.platform || ''))
+      const groceryCart = (kind === 'cart' || kind === 'basket_stocked') && model?.editable
       if (groceryCart || kind === 'basket') setVertical('grocery')
-      setWidgetModel(model)
+      else if (kind === 'comparison') setVertical(model.vertical)
+      else if (kind === 'cart' && ['zomato', 'swiggy_food'].includes(providerId(model?.platform))) setVertical('food')
+      setWidgetModel(model, next)
       setScreen(next, { replace: replacePending })
       setFocusKey(defaultFocusFor(next, model))
     }
@@ -1723,12 +1788,17 @@ const QuickBitePanel = forwardRef(
        Try again, never on a stale screen. */
     async function askFromWidget(prompt) {
       if (!prompt) return
+      const epoch = journeyEpochRef.current
+      if (widgetActionRef.current?.epoch === epoch) return
+      const request = { epoch }
+      widgetActionRef.current = request
       setLoadingPhase('agent')
       /* The pressed button disappears behind the loading state, so focus
          must leave it; contentKeys is empty until the answer arrives. */
       setFocusKey('back')
       try {
         const envelope = await sendSilent(prompt)
+        if (epoch !== journeyEpochRef.current) return
         const tracking = trackingFromEnvelope(envelope)
         const confirmedCod = confirmedCodCheckout(envelope)
         /* Defence in depth. No widget button should reach an order (activate()
@@ -1753,7 +1823,65 @@ const QuickBitePanel = forwardRef(
         }
         showEnvelope(envelope)
       } catch (error) {
+        if (epoch !== journeyEpochRef.current || error.kind === 'superseded-search') return
         showEnvelope({ widget: 'hologram', text: error.message || 'Something went wrong.' })
+      } finally {
+        if (widgetActionRef.current === request) widgetActionRef.current = null
+      }
+    }
+    function confirmCartDestruction(label, fromCheckout = false) {
+      setConfirmStrip({ question: 'Clear or cancel this cart?', options: [
+        { label: 'Keep cart', intent: 'stop' },
+        { label: 'Confirm', intent: 'cart-destructive', backendLabel: label, fromCheckout },
+      ] })
+      setStripIndex(0)
+    }
+    async function reviewEditedCart() {
+      const model = widgetModel
+      const prompt = agentCartEditPrompt(model)
+      if (!prompt) return openPlatformCart(model?.platform)
+      const epoch = journeyEpochRef.current
+      if (cartEditInFlightRef.current?.epoch === epoch) return
+      const request = { epoch }
+      cartEditInFlightRef.current = request
+      setCart(null)
+      setCartEnvelope(null)
+      setOrderSubmitted(false)
+      setCheckoutQr('')
+      setCheckoutPayment('')
+      setCheckoutWithoutTracking(false)
+      setFlowError(null)
+      setLoadingPhase('cart')
+      setScreenAndFocus('cart', 'back')
+      try {
+        const envelope = await sendSilent(prompt, { provider: providerId(model.platform, 'grocery') })
+        if (epoch !== journeyEpochRef.current) return
+        if (trackingFromEnvelope(envelope) || paymentQrFromEnvelope(envelope, { allowImageFallback: false }) || confirmedCodCheckout(envelope)) {
+          // Real order evidence is already retained by App; do not retry a mutation.
+          setCartEnvelope(envelope)
+          setOrderSubmitted(true)
+          setCheckoutQr(paymentQrFromEnvelope(envelope, { allowImageFallback: false }))
+          setCheckoutPayment(paymentMethodFromEnvelope(envelope))
+          setCheckoutWithoutTracking(!trackingFromEnvelope(envelope))
+          setScreenAndFocus('pay', 'refresh-tracking')
+          return
+        }
+        const nextCart = cartFromEnvelope(envelope)
+        if (!nextCart) throw new Error(envelope?.text || 'The provider did not return the updated cart.')
+        setCart(nextCart)
+        setCartEnvelope(envelope)
+        // The actual response becomes the new baseline when Back reopens editing.
+        const parsed = screenForEnvelope(envelope)
+        if (parsed.screen === 'agent-cart') widgetModelsRef.current['agent-cart'] = parsed.model
+        setFocusKey(checkoutActionLabels(envelope).length ? 'checkout-action-0' : 'shop-more')
+      } catch (error) {
+        if (epoch !== journeyEpochRef.current) return
+        setFlowError({ kind: 'basket_cart', platform: model.platform,
+          message: `${error.message} Refresh the current provider cart before editing again.` })
+        setFocusKey('retry')
+      } finally {
+        if (cartEditInFlightRef.current === request) cartEditInFlightRef.current = null
+        if (epoch === journeyEpochRef.current) setLoadingPhase('')
       }
     }
     /* stock_basket already wrote the platform cart, so "Go to cart" must READ
@@ -1765,6 +1893,7 @@ const QuickBitePanel = forwardRef(
         setNotice('The platform is missing. Please choose a store before opening its cart.')
         return
       }
+      const epoch = journeyEpochRef.current
       /* `cart`'s fixed parent is greview/review, which a user arriving from
          gbasket, agent-cart or a text/spend button never saw. Record the
          real origin so Back returns there (navigation.js backTarget). Retry
@@ -1788,6 +1917,7 @@ const QuickBitePanel = forwardRef(
         `Show the cart total and ask me to confirm before checkout.`
       try {
         const envelope = await sendSilent(prompt)
+        if (epoch !== journeyEpochRef.current) return
         const tracking = trackingFromEnvelope(envelope)
         const confirmedCod = confirmedCodCheckout(envelope)
         const qr = paymentQrFromEnvelope(envelope, { allowImageFallback: Boolean(tracking) && !confirmedCod })
@@ -1810,11 +1940,12 @@ const QuickBitePanel = forwardRef(
         const actions = checkoutActionLabels(envelope)
         setFocusKey(actions.length ? 'checkout-action-0' : 'shop-more')
       } catch (error) {
+        if (epoch !== journeyEpochRef.current) return
         // The platform rides along so Try again reopens THIS cart.
         setFlowError({ kind: 'basket_cart', platform, message: error.message })
         setFocusKey('retry')
       } finally {
-        setLoadingPhase('')
+        if (epoch === journeyEpochRef.current) setLoadingPhase('')
       }
     }
     /* An order label on a text/spend screen: show the bill instead of
@@ -1858,6 +1989,7 @@ const QuickBitePanel = forwardRef(
         const envelope =
           await sendSilent(
             action,
+            { provider: providerId(cartPlatformName, vertical) },
           )
         const tracking = trackingFromEnvelope(envelope)
         const updatedCart =
@@ -1883,6 +2015,10 @@ const QuickBitePanel = forwardRef(
           setCheckoutQr(
             qr,
           )
+        }
+        if (isCartDestructiveAction(action) && !tracking && !qr && !confirmedCod) {
+          showEnvelope(envelope)
+          return
         }
         if (
           tracking ||
@@ -1978,6 +2114,10 @@ const QuickBitePanel = forwardRef(
       }
     }
     function activate(key) {
+      if (key === 'reconnect-provider' && widgetModel?.reconnectProvider) {
+        const selected = PROVIDERS[widgetModel.reconnectProvider]
+        return onRequestLogin?.(selected.vertical, widgetModel.reconnectProvider)
+      }
       if (
         key === 'back'
       ) {
@@ -2052,11 +2192,16 @@ const QuickBitePanel = forwardRef(
          Every other label is an ordinary question for the agent. */
       if (key.startsWith('text-action-') || key.startsWith('spend-action-')) {
         const label = widgetModel?.actions?.[trailingIndex(key)]
+        if (isCartDestructiveAction(label)) return confirmCartDestruction(label)
         if (isOrderAction(label)) return openCartForOrderLabel()
         return askFromWidget(label)
       }
       if (key === 'acart-checkout') {
+        if (widgetModel?.editable) return reviewEditedCart()
         return openPlatformCart(widgetModel?.platform)
+      }
+      if (/^acart-(minus|plus)-\d+$/.test(key)) {
+        return setWidgetModel(model => editAgentCartQuantity(model, trailingIndex(key), key.startsWith('acart-plus-') ? 1 : -1))
       }
       if (key === 'acart-edit') {
         return askFromWidget(`make changes to my ${widgetModel?.platform || ''} cart`.replace(/\s+/g, ' '))
@@ -2221,6 +2366,7 @@ const QuickBitePanel = forwardRef(
           )
           return
         }
+        if (isCartDestructiveAction(checkoutActions[index])) return confirmCartDestruction(checkoutActions[index], true)
         return submitCheckoutAction(
           checkoutActions[
             index
@@ -2272,6 +2418,10 @@ const QuickBitePanel = forwardRef(
     function handleDirectionalKey(
       key,
     ) {
+      if (screen === 'agent-cart' && widgetModel?.editable && !loadingPhase) {
+        const next = editableCartFocusAfterArrow(focusKey, key, widgetModel.lines.length)
+        if (next) { setFocusKey(next); return }
+      }
       if (screen === 'mode' && focusKey.startsWith('mode-') && (key === 'ArrowLeft' || key === 'ArrowRight')) {
         setFocusKey(focusKey === 'mode-food' ? 'mode-grocery' : 'mode-food')
         return
@@ -4209,7 +4359,9 @@ const QuickBitePanel = forwardRef(
             stage="pay"
           />
           {renderHeader(
-            paymentMode === 'qr'
+            missingZomatoInstructions && !waitingForInstructions
+              ? 'Payment instructions unavailable'
+              : paymentMode === 'qr'
               ? 'Pay on your Phone'
               : paymentMode === 'cod'
                 ? 'Order Confirmed'
@@ -4254,6 +4406,15 @@ const QuickBitePanel = forwardRef(
                   app
                 </p>
               </>
+            ) : missingZomatoInstructions ? (
+              <div className="qb-qr-wait" role={waitingForInstructions ? 'status' : 'alert'}>
+                {waitingForInstructions && <span className="qb-spinner" />}
+                <p>{waitingForInstructions
+                  ? 'Checking for Zomato payment instructions…'
+                  : 'Zomato has not returned payment instructions yet. Check payment status or open this order in Zomato. Do not place the order again.'}</p>
+                {(trackingSnapshot?.order_id || activeOrder?.tracking?.order_id) &&
+                  <p>Order: {trackingSnapshot?.order_id || activeOrder?.tracking?.order_id}</p>}
+              </div>
             ) : paymentMode === 'qr' ? (
               <div className="qb-qr-wait">
                 <span className="qb-spinner" />
@@ -4644,6 +4805,8 @@ const QuickBitePanel = forwardRef(
     return (
       <aside
         ref={panelRef}
+        data-screen={screen}
+        data-vertical={vertical}
         className={`qb-panel ${
           open
             ? 'is-open'

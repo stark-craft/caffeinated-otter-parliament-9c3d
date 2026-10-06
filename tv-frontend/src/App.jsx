@@ -4,14 +4,16 @@ import VideoPlayer from './components/VideoPlayer.jsx'
 import CommerceSidebar from './components/CommerceSidebar.jsx'
 import QrLoginPanel from './components/quickbite/QrLoginPanel.jsx'
 import VoiceOverlay from './components/VoiceOverlay.jsx'
-import { MERCHANT_IDS, anyMerchantConnected, verticalUnlocked } from './quickbite/merchantAccess.js'
+import { MERCHANT_IDS, anyMerchantConnected, verticalUnlocked, merchantConnected, effectivePlatforms, mergeMerchantStatuses } from './quickbite/merchantAccess.js'
 import { searchPrompt } from './quickbite/searchPrompt.js'
+import { PROVIDERS, requestedProviders, providerResponseProblem } from './quickbite/providers.js'
+import { commerceLog, responseAttribution } from './quickbite/commerceDiagnostics.js'
 import { sttKeyterms } from './quickbite/keyterms.js'
 import { useLiveOrderTracking } from './hooks/useLiveOrderTracking.js'
 import { useVoiceKey } from './hooks/useVoiceKey.js'
 import { useSamsungVoice } from './hooks/useSamsungVoice.js'
 import { findVoiceCommand, getHiddenVoiceTargets } from './quickbite/voiceNavigation.js'
-import { buildView } from './quickbite/viewContext.js'
+import { buildView, viewForRequest } from './quickbite/viewContext.js'
 import { deriveIntent } from './quickbite/deriveIntent.js'
 import { routeIntent } from './quickbite/intents.js'
 import { newVoiceTrace, voiceError, voiceLog, voiceWarn } from './quickbite/voiceDiagnostics.js'
@@ -33,6 +35,7 @@ const [platforms, setPlatforms] = useState([])
 const [merchantStatuses, setMerchantStatuses] = useState({})
 const [authChecked, setAuthChecked] = useState(false)
 const [qrTarget, setQrTarget] = useState(null)
+const [qrProvider, setQrProvider] = useState(null)
 const [qrSessionId, setQrSessionId] = useState('')
 const [qrLoading, setQrLoading] = useState(false)
 const [qrError, setQrError] = useState('')
@@ -54,24 +57,35 @@ const commerceRef = useRef(null)
 const sessionBootRef = useRef(null)
 const qrBootRef = useRef(null)
 const samsungTranscriptRef = useRef(null)
+const merchantStatusesRef = useRef({})
+const merchantPollRef = useRef(null)
+const discoverySeqRef = useRef(0)
 const hasConnectedMerchant = anyMerchantConnected(merchantStatuses, platforms)
 const foodUnlocked = verticalUnlocked(merchantStatuses, platforms, 'food')
 const groceryUnlocked = verticalUnlocked(merchantStatuses, platforms, 'grocery')
 const qrReady = authChecked
-const qrRequired = !qrReady || !hasConnectedMerchant || Boolean(qrTarget) || Boolean(qrSessionId && !qrComplete)
+const qrRequired = !qrReady || (!hasConnectedMerchant && !activeOrder && !externalRequest) || Boolean(qrTarget) || Boolean(qrSessionId && !qrComplete)
 const refreshMerchantStatuses = useCallback(async () => {
+if (merchantPollRef.current) return merchantPollRef.current
+const poll = (async () => {
 const entries = await Promise.all(MERCHANT_IDS.map(async (merchantId) => {
 try {
 const status = await getMerchantStatus(merchantId)
-return [merchantId, status?.connected === true]
+return [merchantId, typeof status?.connected === 'boolean' ? status.connected : null]
 } catch {
 return [merchantId, null]
 }
 }))
-const next = Object.fromEntries(entries)
+const observed = Object.fromEntries(entries)
+const next = mergeMerchantStatuses(merchantStatusesRef.current, observed)
+merchantStatusesRef.current = next
 setMerchantStatuses(next)
 setAuthChecked(true)
+commerceLog('merchant-status', { observed, retained: next })
 return next
+})()
+merchantPollRef.current = poll
+try { return await poll } finally { merchantPollRef.current = null }
 }, [])
 const refreshCommerceSession = useCallback(async () => {
 const response = await createSession(sessionId || localStorage.getItem('ca_sid') || null)
@@ -86,8 +100,9 @@ setPlatforms(nextPlatforms)
 setSessionError('')
 return nextPlatforms
 }, [sessionId])
-const requestQrLogin = useCallback((vertical) => {
+const requestQrLogin = useCallback((vertical, provider = null) => {
 setQrTarget(vertical)
+setQrProvider(provider)
 setQrSessionId('')
 setQrComplete(false)
 setQrError('')
@@ -100,14 +115,15 @@ setQrError('')
 setQrAttempt((attempt) => attempt + 1)
 }, [])
 const closeQrLogin = useCallback(() => {
-if (qrTarget && hasConnectedMerchant) {
+if (qrTarget && (hasConnectedMerchant || externalRequest || activeOrder)) {
 setQrTarget(null)
+setQrProvider(null)
 setQrSessionId('')
 setQrComplete(false)
 } else {
 setPaneOpen(false)
 }
-}, [qrTarget, hasConnectedMerchant])
+}, [qrTarget, hasConnectedMerchant, externalRequest, activeOrder])
 const seedTracking = useCallback((envelope) => {
 const tracking = trackingFromEnvelope(envelope)
 if (!tracking) return envelope
@@ -144,6 +160,7 @@ refreshMerchantStatuses()
 }, [refreshMerchantStatuses])
 useEffect(() => {
 if (!paneOpen) return undefined
+refreshMerchantStatuses()
 const interval = setInterval(refreshMerchantStatuses, 15000)
 return () => clearInterval(interval)
 }, [paneOpen, refreshMerchantStatuses])
@@ -180,11 +197,14 @@ refreshCommerceSession(),
 ])
 if (!active) return
 setQrComplete(true)
-const unlocked = qrTarget
+const unlocked = qrProvider
+? merchantConnected(nextStatuses, nextPlatforms, PROVIDERS[qrProvider].merchant)
+: qrTarget
 ? verticalUnlocked(nextStatuses, nextPlatforms, qrTarget)
 : anyMerchantConnected(nextStatuses, nextPlatforms)
 if (unlocked) {
 setQrTarget(null)
+setQrProvider(null)
 setQrSessionId('')
 setQrError('')
 }
@@ -199,8 +219,8 @@ return () => {
 active = false
 clearInterval(interval)
 }
-}, [paneOpen, qrRequired, qrSessionId, qrTarget, refreshMerchantStatuses, refreshCommerceSession])
-const send = useCallback(async (text, { silent = false, voiceTraceId = null } = {}) => {
+}, [paneOpen, qrRequired, qrSessionId, qrTarget, qrProvider, refreshMerchantStatuses, refreshCommerceSession])
+const send = useCallback(async (text, { silent = false, voiceTraceId = null, searchIntent = null, searchVertical = null, provider = null } = {}) => {
 const message = String(text ?? input).trim()
 if (!message) {
 if (voiceTraceId) voiceWarn(voiceTraceId, 'Empty /chat message skipped', { text })
@@ -216,24 +236,55 @@ setInput('')
 }
 setLoading(true)
 setPaneOpen(true)
+let sequence = null
+let orderEvidence = false
 try {
-const view = buildView({ ...(panelState || {}), activeOrder })
-if (voiceTraceId) voiceLog(voiceTraceId, 'Frontend → backend /api/chat request (LLM input)', { message, view, silent })
-const response = await sendChat(sessionId, message, view)
+const currentView = buildView({ ...(panelState || {}), activeOrder })
+const derived = searchVertical ? deriveIntent(message, { ...currentView, vertical: searchVertical }) : null
+const intent = searchIntent || (derived ? { ...derived, name: 'search', journey: 'new-search', slots: { ...derived.slots, vertical: searchVertical } } : null)
+sequence = intent ? ++discoverySeqRef.current : null
+const view = intent ? viewForRequest(currentView, intent) : currentView
+const scope = effectivePlatforms(merchantStatusesRef.current, platforms)
+const outbound = intent ? searchPrompt(message, intent.slots?.vertical, scope) : message
+const expected = intent || { slots: { providers: provider ? [provider] : requestedProviders(message) } }
+commerceLog('request', { userSaid: message, intent, currentView, request: { session_id: sessionId, message: outbound, view }, merchantStatuses: merchantStatusesRef.current, sessionPlatforms: platforms, effectiveScope: scope, expectedProviders: expected.slots?.providers })
+if (voiceTraceId) voiceLog(voiceTraceId, 'Frontend → backend /api/chat request (LLM input)', { message: outbound, view, silent })
+const response = await sendChat(sessionId, outbound, view)
 if (voiceTraceId) voiceLog(voiceTraceId, 'Backend /api/chat response (envelope; not raw internal LLM output)', response)
+commerceLog('response', { expectedProviders: expected.slots?.providers, ...responseAttribution(response) })
+// Preserve real order evidence even if an unexpected provider or an older
+// search produced it. Never replay checkout to reconcile that response.
 seedTracking(response)
+orderEvidence = Boolean(trackingFromEnvelope(response))
+if (sequence !== null && sequence !== discoverySeqRef.current && !orderEvidence) {
+commerceLog('superseded-response', { sequence, latest: discoverySeqRef.current, ...responseAttribution(response) })
+const error = new Error('A newer search replaced this response.')
+error.kind = 'superseded-search'
+throw error
+}
+const problem = providerResponseProblem(expected, response)
+if (problem) {
+commerceLog('provider-error', problem)
+const error = new Error(problem.message)
+Object.assign(error, problem)
+throw error
+}
 if (!silent || response?.widget === 'message') {
 setMessages((current) => [...current, { role: 'assistant', ...response }])
 }
 return response
 } catch (error) {
+if (sequence !== null && sequence !== discoverySeqRef.current && !orderEvidence && error.kind !== 'superseded-search') {
+commerceLog('superseded-error', { sequence, latest: discoverySeqRef.current })
+error.kind = 'superseded-search'
+}
 if (voiceTraceId) voiceError(voiceTraceId, 'Backend /api/chat request failed', error)
 throw error
 } finally {
-setLoading(false)
+if (sequence === null || sequence === discoverySeqRef.current) setLoading(false)
 }
-}, [input, seedTracking, sessionId, activeOrder, panelState])
-const sendSilent = useCallback((message) => send(message, { silent: true }), [send])
+}, [input, seedTracking, sessionId, activeOrder, panelState, platforms])
+const sendSilent = useCallback((message, options = {}) => send(message, { ...options, silent: true }), [send])
 const updateTrackingDescriptor = useCallback((tracking) => {
 setActiveOrder((current) => current ? { ...current, tracking } : current)
 }, [])
@@ -259,6 +310,7 @@ const query = String(request.label || '')
 .replace(/^[^\p{L}\p{N}]+/u, '').replace(/^(Order|Best)\s+/i, '').trim()
 return {
 name: 'search', confidence: 0.99, alternatives: [],
+journey: 'new-search',
 slots: { query, vertical: 'food' },
 error: request.type === 'search-error' ? request.message : undefined,
 pending: request.type === 'search-loading',
@@ -278,7 +330,7 @@ return
 const pending = intentFromLegacy({ type: 'search-loading', label: action.label })
 issueRequest({ type: 'intent', intent: pending, envelope: null })
 try {
-const envelope = await sendSilent(action.prompt)
+const envelope = await sendSilent(action.prompt, { searchVertical: 'food' })
 issueRequest({ type: 'intent', intent: { ...pending, pending: false }, envelope })
 } catch (error) {
 issueRequest({
@@ -320,13 +372,14 @@ if (voiceCommand) {
 }
 const local = deriveIntent(transcript, { ...view, language }, null)
 voiceLog(voiceTraceId, 'Local intent derivation', local)
-if (!hasConnectedMerchant) {
+const explicitProvider = local.slots?.providers?.length > 0
+if (!hasConnectedMerchant && !explicitProvider) {
 voiceWarn(voiceTraceId, 'Voice intent blocked: merchant login required; opening QR panel', { intent: local.name })
 setPaneOpen(true)
 return
 }
 const requestedVertical = local.slots?.vertical === 'grocery' ? 'grocery' : 'food'
-if ((local.name === 'switch_vertical' || ['search', 'refine', 'compare'].includes(local.name)) &&
+if (!explicitProvider && (local.name === 'switch_vertical' || ['search', 'refine', 'compare'].includes(local.name)) &&
 !verticalUnlocked(merchantStatuses, platforms, requestedVertical)) {
 voiceWarn(voiceTraceId, 'Voice intent blocked: vertical locked; opening QR panel', { requestedVertical, intent: local.name })
 requestQrLogin(requestedVertical)
@@ -348,22 +401,21 @@ issueRequest({ type: 'intent', intent: local, envelope: null, voiceTraceId })
 return
 }
 setPaneOpen(true)
-issueRequest({ type: 'intent', intent: { ...local, pending: true }, envelope: null, voiceTraceId })
+issueRequest({ type: 'intent', intent: { ...local, pending: true }, envelope: null, voiceTraceId, utterance: transcript })
 try {
 /* The whole transcript, not the stripped query: the sentence is what the
 agent routes on ("order from <restaurant>" must not become a dish
 search). searchPrompt only appends which platforms of this vertical
 are actually connected. */
-const prompt = searchPrompt(transcript, local.slots?.vertical || view.vertical, platforms)
-voiceLog(voiceTraceId, 'Voice transcript → backend search prompt', { transcript, prompt, vertical: local.slots?.vertical || view.vertical })
-const envelope = await send(prompt, { silent: true, voiceTraceId })
+const envelope = await send(transcript, { silent: true, voiceTraceId, searchIntent: local })
 /* `local`, not a re-derive: every envelope-bearing branch in the panel
 returns before routeIntent, so the second derivation was dead work —
 and it ran against the pre-search view, which is now stale. */
-issueRequest({ type: 'intent', intent: { ...local, pending: false }, envelope, voiceTraceId })
+issueRequest({ type: 'intent', intent: { ...local, pending: false }, envelope, voiceTraceId, utterance: transcript })
 } catch (error) {
+if (error.kind === 'superseded-search') return
 voiceError(voiceTraceId, 'Voice backend/search routing failed', error)
-issueRequest({ type: 'intent', intent: { ...local, error: error.message }, envelope: null, voiceTraceId })
+issueRequest({ type: 'intent', intent: { ...local, pending: false, error: error.message, reconnectProvider: error.provider || local.slots?.provider }, envelope: null, voiceTraceId, utterance: transcript })
 }
 }, [activeOrder, panelState, platforms, merchantStatuses, hasConnectedMerchant, requestQrLogin, send])
 samsungTranscriptRef.current = handleTranscript
@@ -376,30 +428,32 @@ const intent = request?.intent
 if (!intent) return
 const voiceTraceId = request.voiceTraceId || null
 if (voiceTraceId) voiceLog(voiceTraceId, 'Retrying voice-originated panel request', { intent })
-const query = String(intent.slots?.query || '').trim()
+const query = String(request.utterance || intent.transcript || intent.slots?.query || '').trim()
 setPaneOpen(true)
 if (!query) {
 issueRequest({ type: 'intent', intent: { ...intent, error: undefined }, envelope: null, voiceTraceId })
 return
 }
-const base = { ...intent, error: undefined }
-issueRequest({ type: 'intent', intent: { ...base, pending: true }, envelope: null, voiceTraceId })
+const base = { ...intent, error: undefined, reconnectProvider: undefined }
+issueRequest({ type: 'intent', intent: { ...base, pending: true }, envelope: null, voiceTraceId, utterance: query })
 try {
 /* Through searchPrompt, like the first attempt. Sending the bare query
 reproduced the very bug that module exists to fix: no platform named,
 so only one of them was searched. */
 const envelope = await send(
-searchPrompt(query, intent.slots?.vertical, platforms),
-{ silent: true, voiceTraceId },
+query,
+{ silent: true, voiceTraceId, searchIntent: base },
 )
-issueRequest({ type: 'intent', intent: { ...base, pending: false }, envelope, voiceTraceId })
+issueRequest({ type: 'intent', intent: { ...base, pending: false }, envelope, voiceTraceId, utterance: query })
 } catch (error) {
+if (error.kind === 'superseded-search') return
 if (voiceTraceId) voiceError(voiceTraceId, 'Retry of voice-originated request failed', error)
 issueRequest({
 type: 'intent',
-intent: { ...base, pending: false, error: error.message },
+intent: { ...base, pending: false, error: error.message, reconnectProvider: error.provider || base.slots?.provider },
 envelope: null,
 voiceTraceId,
+utterance: query,
 })
 }
 }, [platforms, send])
@@ -421,10 +475,10 @@ demoVoice,
 })
 const samsungVoice = useSamsungVoice({ onTranscript: handleTranscript })
 const visibleVoice = samsungVoice.phase !== 'idle' || samsungVoice.micError ? samsungVoice : voice
-const commerceOverlay = qrRequired ? (
+const commerceOverlay = <>
 <QrLoginPanel
-ref={commerceRef}
-open={paneOpen}
+ref={qrRequired ? commerceRef : null}
+open={paneOpen && qrRequired}
 onClose={closeQrLogin}
 onRetry={retryQrLogin}
 sessionId={qrSessionId}
@@ -434,11 +488,11 @@ connectionError={sessionError}
 complete={qrComplete}
 ready={qrReady}
 target={qrTarget}
+providerLabel={PROVIDERS[qrProvider]?.label}
 />
-) : (
 <CommerceSidebar
-ref={commerceRef}
-open={paneOpen}
+ref={qrRequired ? null : commerceRef}
+open={paneOpen && !qrRequired}
 onClose={() => setPaneOpen(false)}
 sessionId={sessionId}
 activeOrder={activeOrder}
@@ -452,7 +506,7 @@ trackingState={trackingState}
 onPanelState={setPanelState}
 onRetryRequest={handleRetryRequest}
 />
-)
+</>
 return (
 <div className={`app-shell ${isFullscreen ? 'is-fullscreen' : ''}`}>
 <main className="app-main" onMouseEnter={() => setPeekSidebar(true)} onMouseLeave={() => setPeekSidebar(false)} data-peek={peekSidebar || undefined}>

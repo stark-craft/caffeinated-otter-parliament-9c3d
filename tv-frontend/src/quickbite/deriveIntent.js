@@ -1,4 +1,5 @@
 import { matchable, normalizeTranscript } from "./transcript.js";
+import { searchJourney } from "./providers.js";
 
 /* Phase 1 classifier. * * Three separate passes, because entangling them is what broke the first * attempt: *
 1. parseItemRef
@@ -146,7 +147,8 @@ export function parseItemRef(text, items, focusIndex = 0) {
       };
     }
   }
-  const deictic = text.match(DEICTIC);
+  const more = text.match(/\b(?:one|two|three|four|five|\d{1,2})\s+more\b/u);
+  const deictic = text.match(DEICTIC) || more;
   if (deictic) {
     const target = list[focusIndex] || list[0];
     return {
@@ -156,7 +158,7 @@ export function parseItemRef(text, items, focusIndex = 0) {
         resolved_id: target.id,
         resolved_name: target.name,
       },
-      consumed: deictic[0],
+      consumed: more ? "more" : deictic[0],
     };
   }
   return { ref: null, consumed: "" };
@@ -311,6 +313,9 @@ const LONG_REQUEST_WORDS = 10;
 export function deriveIntent(transcript, view, envelope) {
   const raw = normalizeTranscript(transcript);
   const text = matchable(transcript);
+  const journey = searchJourney(raw, view);
+  const searchSlots = () => ({ query: stripQuery(text), vertical: journey.vertical,
+    providers: journey.providers, provider: journey.providers.length === 1 ? journey.providers[0] : null });
   const items = view?.items || [];
   const language = envelope?.language || view?.language || "en-IN";
   const base = {
@@ -320,6 +325,7 @@ export function deriveIntent(transcript, view, envelope) {
     language,
     speech: "",
     transcript: raw,
+    journey: journey.kind,
     view_revision: view?.view_revision ?? null,
   };
   if (!text) return { ...base, name: "unknown", confidence: 0 };
@@ -338,28 +344,30 @@ export function deriveIntent(transcript, view, envelope) {
   const { ref, consumed } = parseItemRef(text, items, view?.focus_index ?? 0);
   const remainder = consumed ? text.replace(consumed, " ") : text;
   const rule = matchRule(text);
+  // A fresh named search stays fresh even when its subject also appears in
+  // the previous result list. Ordinal/deictic continuations still select it.
+  if (ref && journey.kind === "continuation" && (!rule || rule.name === "search" || rule.name === "switch_vertical")) {
+    return { ...base, name: "select", confidence: 0.9, slots: { item_ref: ref } };
+  }
   const longListRequest =
     rule &&
     LIST_BUILDERS.has(rule.name) &&
     text.split(/\s+/u).length >= LONG_REQUEST_WORDS;
   if (
     rule &&
-    !ref &&
+    (!ref || journey.kind === "new-search") &&
     FOLDS_INTO_SEARCH.has(rule.name) &&
-    (SEARCH_LEAD.test(text) || longListRequest)
+    (SEARCH_LEAD.test(text) || longListRequest || (journey.providers.length && rule.name === 'switch_vertical'))
   ) {
     return {
       ...base,
       name: "search",
       confidence: 0.86,
-      slots: {
-        query: stripQuery(text),
-        vertical: GROCERY_CUE.test(text) ? "grocery" : view?.vertical || "food",
-      },
+      slots: searchSlots(),
     };
   }
   // A bare reference with no verb is a selection: "the second one".
-  if (!rule && ref) {
+  if (!rule && ref && journey.kind === "continuation") {
     return {
       ...base,
       name: "select",
@@ -374,7 +382,7 @@ export function deriveIntent(transcript, view, envelope) {
       ...base,
       name: "search",
       confidence: 0.62,
-      slots: { query: stripQuery(text), vertical: view?.vertical || "food" },
+      slots: searchSlots(),
       unmatched: true,
     };
   }
@@ -388,8 +396,11 @@ export function deriveIntent(transcript, view, envelope) {
     if (priceMax != null) slots.price_max = priceMax;
   }
   if (rule.name === "search") {
-    slots.query = stripQuery(text);
-    slots.vertical = view?.vertical || "food";
+    Object.assign(slots, searchSlots());
+  }
+  if (rule.name === "refine" || rule.name === "compare") {
+    Object.assign(slots, { vertical: journey.kind === "continuation" ? view?.vertical || "food" : journey.vertical,
+      providers: journey.providers, provider: journey.providers.length === 1 ? journey.providers[0] : null });
   }
   if (rule.name === "switch_vertical") {
     slots.vertical = /grocer|ग्रोसरी|किराना|kirana|instamart|zepto/u.test(text)

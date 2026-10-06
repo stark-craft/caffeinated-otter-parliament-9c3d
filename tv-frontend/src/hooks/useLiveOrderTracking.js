@@ -3,6 +3,8 @@ import { track } from "../api.js";
 import { imageDataUri } from "../quickbite/envelopes.js";
 import {
   normalizeTrackingSnapshot,
+  reconcileTrackingSnapshot,
+  withTrackingTimeout,
   trackingPhase,
   trackingPhaseRank,
   trackingSignature,
@@ -20,20 +22,18 @@ export function useLiveOrderTracking({
   const [stale, setStale] = useState(false);
   const [error, setError] = useState("");
   const [polling, setPolling] = useState(false);
+  const [completedPolls, setCompletedPolls] = useState(0);
   const descriptorRef = useRef(null);
   const snapshotRef = useRef(null);
   const signatureRef = useRef("");
-  const phaseRankRef = useRef(0);
   const qrRef = useRef("");
   const refreshRef = useRef(() => Promise.resolve());
-  const inFlightRef = useRef(false);
   useEffect(() => {
     descriptorRef.current = activeOrder?.tracking
       ? { ...activeOrder.tracking }
       : null;
     snapshotRef.current = null;
     signatureRef.current = "";
-    phaseRankRef.current = 0;
     setSnapshot(null);
     setHistory([]);
     const initialQr = imageDataUri(activeOrder?.qr);
@@ -41,30 +41,12 @@ export function useLiveOrderTracking({
     setQr(initialQr);
     setStale(false);
     setError("");
+    setPolling(false);
+    setCompletedPolls(0);
   }, [activeOrder?.seq]);
   const acceptSnapshot = useCallback(
     (raw) => {
-      const next = normalizeTrackingSnapshot(raw);
-      const nextPhase = trackingPhase(next);
-      const nextRank = trackingPhaseRank(nextPhase);
-      const previous = snapshotRef.current;
-      // Provider snapshots can be eventually consistent. Keep visible progress monotonic.
-      if (
-        previous &&
-        nextRank < phaseRankRef.current &&
-        nextPhase !== "cancelled"
-      ) {
-        Object.assign(next, {
-          step: previous.step,
-          status: previous.status,
-          order_status: previous.order_status,
-          title: previous.title,
-          message: next.message || previous.message,
-          done: previous.done,
-        });
-      } else if (nextPhase !== "cancelled") {
-        phaseRankRef.current = Math.max(phaseRankRef.current, nextRank);
-      }
+      const next = reconcileTrackingSnapshot(snapshotRef.current, normalizeTrackingSnapshot(raw));
       if (next.order_id && descriptorRef.current?.order_id !== next.order_id) {
         descriptorRef.current = {
           ...descriptorRef.current,
@@ -104,10 +86,13 @@ export function useLiveOrderTracking({
     if (!sessionId || !activeOrder?.tracking) return undefined;
     let cancelled = false;
     let timer = null;
+    let inFlight = false;
     const startedAt = Date.now();
     const poll = async (manual = false) => {
       if (cancelled || !descriptorRef.current) return;
-      if (inFlightRef.current) return;
+      if (inFlight) return;
+      if (timer) window.clearTimeout(timer);
+      timer = null;
       const withinWindow = Date.now() - startedAt < MAX_MS;
       if (!withinWindow && !manual) {
         setPolling(false);
@@ -117,10 +102,10 @@ export function useLiveOrderTracking({
         );
         return;
       }
-      inFlightRef.current = true;
+      inFlight = true;
       setPolling(true);
       try {
-        const response = await track(sessionId, descriptorRef.current);
+        const response = await withTrackingTimeout(track(sessionId, descriptorRef.current));
         if (cancelled) return;
         const next = acceptSnapshot(response);
         setPolling(false);
@@ -133,7 +118,8 @@ export function useLiveOrderTracking({
         setError(pollError.message || "Tracking is temporarily unavailable.");
         if (withinWindow) timer = window.setTimeout(poll, POLL_MS);
       } finally {
-        inFlightRef.current = false;
+        inFlight = false;
+        if (!cancelled) setCompletedPolls(count => count + 1);
       }
     };
     refreshRef.current = () => poll(true);
@@ -141,12 +127,11 @@ export function useLiveOrderTracking({
     timer = window.setTimeout(poll, 0);
     return () => {
       cancelled = true;
-      inFlightRef.current = false;
       if (timer) window.clearTimeout(timer);
     };
   }, [sessionId, activeOrder?.seq, acceptSnapshot]);
   const refresh = useCallback(async () => {
     await refreshRef.current?.();
   }, []);
-  return { snapshot, history, qr, stale, error, polling, refresh };
+  return { snapshot, history, qr, stale, error, polling, completedPolls, refresh };
 }

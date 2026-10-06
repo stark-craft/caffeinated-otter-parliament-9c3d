@@ -1,6 +1,21 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { normalizeTrackingSnapshot, screenForTracking, trackingPhase } from './tracking.js'
+import { normalizeTrackingSnapshot, screenForTracking, trackingPhase, reconcileTrackingSnapshot, withTrackingTimeout } from './tracking.js'
+
+test('payment incomplete is authoritative even when a generic heading says Placed', () => {
+  const incomplete = { step: 'Placed', order_status: "Your order's payment is incomplete", done: false }
+  assert.equal(trackingPhase(incomplete), 'pay')
+  assert.equal(trackingPhase({ ...incomplete, done: true }), 'pay')
+  assert.equal(trackingPhase(reconcileTrackingSnapshot({ step: 'In the kitchen' }, incomplete)), 'pay')
+  assert.equal(trackingPhase(reconcileTrackingSnapshot(incomplete, { step: 'In the kitchen' })), 'preparing')
+  assert.equal(reconcileTrackingSnapshot({ step: 'On the way' }, { step: 'Placed' }).step, 'On the way')
+})
+
+test('safe status checks have a deadline, preserve errors and never invoke checkout', async () => {
+  assert.deepEqual(await withTrackingTimeout(Promise.resolve({ order_status: 'Awaiting payment' })), { order_status: 'Awaiting payment' })
+  await assert.rejects(withTrackingTimeout(Promise.reject(new Error('Status unavailable'))), /Status unavailable/)
+  await assert.rejects(withTrackingTimeout(new Promise(() => {}), 5), /did not respond/)
+})
 
 test('an out-for-delivery order remains on the way', () => {
   const snapshot = { order_status: 'Out for delivery', done: false }

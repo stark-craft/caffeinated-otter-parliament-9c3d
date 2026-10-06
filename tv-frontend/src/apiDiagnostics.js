@@ -1,3 +1,4 @@
+import { safeVoiceDetails } from './quickbite/voiceDiagnostics.js'
 let requestSequence = 0
 
 function routePath(url) {
@@ -75,30 +76,30 @@ export function logApiRequest(surface, method, url, body, details = {}) {
     purpose: apiPurpose(method, fullUrl),
     startedAt: Date.now(),
   }
-  console.log(`${tag(trace)} REQUEST — ${trace.purpose}`, {
+  console.log(`${tag(trace)} REQUEST — ${trace.purpose}`, safeVoiceDetails({
     method,
     url: fullUrl,
     body: body ?? null,
     ...details,
     expected: 'HTTP 2xx with a JSON response',
-  })
+  }))
   return trace
 }
 
 export function logApiResponse(trace, status, data) {
-  console.log(`${tag(trace)} RESPONSE — ${trace.purpose}`, {
+  console.log(`${tag(trace)} RESPONSE — ${trace.purpose}`, safeVoiceDetails({
     method: trace.method,
     url: trace.url,
     status,
     elapsedMs: Date.now() - trace.startedAt,
     data,
-  })
+  }))
   const mismatch = apiResponseMismatch(trace.method, trace.url, data)
   if (mismatch) {
-    console.warn(`${tag(trace)} RESPONSE MISMATCH — ${mismatch}`, {
+    console.warn(`${tag(trace)} RESPONSE MISMATCH — ${mismatch}`, safeVoiceDetails({
       url: trace.url,
       actualResponse: data,
-    })
+    }))
   }
 }
 
@@ -113,7 +114,7 @@ function failureHint(status, error) {
 }
 
 export function logApiFailure(trace, { status = null, responseBody = null, error = null } = {}) {
-  console.error(`${tag(trace)} FAILED — ${trace.purpose}`, {
+  console.error(`${tag(trace)} FAILED — ${trace.purpose}`, safeVoiceDetails({
     method: trace.method,
     url: trace.url,
     expected: 'HTTP 2xx with a JSON response',
@@ -122,5 +123,5 @@ export function logApiFailure(trace, { status = null, responseBody = null, error
     elapsedMs: Date.now() - trace.startedAt,
     backendResponse: responseBody,
     error,
-  })
+  }))
 }

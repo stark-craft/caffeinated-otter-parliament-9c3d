@@ -37,3 +37,13 @@ export function anyMerchantConnected(statuses, platforms) {
     merchantConnected(statuses, platforms, merchantId),
   )
 }
+
+export function effectivePlatforms(statuses, platforms) {
+  return MERCHANT_IDS.map(id => ({ name: id, connected: merchantConnected(statuses, platforms, id) }))
+}
+
+// A failed/malformed poll is not a logout. Explicit false always takes effect.
+export function mergeMerchantStatuses(previous, observed) {
+  return Object.fromEntries(MERCHANT_IDS.map(id => [id,
+    typeof observed?.[id] === 'boolean' ? observed[id] : previous?.[id] ?? null]))
+}

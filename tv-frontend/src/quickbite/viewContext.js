@@ -26,6 +26,8 @@ const WIDGET_FOR_SCREEN = {
   greview: 'menu',
   cart: 'cart',
   pay: 'cart',
+  'agent-cart': 'cart',
+  compare: 'comparison',
 }
 
 function slug(value) {
@@ -84,6 +86,10 @@ function revisionOf(screen, ids) {
 
 function sourceFor(state) {
   switch (state?.screen) {
+    case 'agent-cart':
+      return (state?.widgetModel?.lines || []).map(line => ({ ...line, platform: state.widgetModel.platform }))
+    case 'compare':
+      return state?.widgetModel?.entries || []
     case 'cart':
     case 'pay':
       return state?.cart?.items || []
@@ -134,6 +140,7 @@ export function buildView(state) {
      which this snapshot is not allowed to carry off the device. */
 
   const carriesPrice =
+    screen !== 'agent-cart' &&
     screen !== 'cart' &&
     screen !== 'pay'
 
@@ -175,8 +182,7 @@ export function buildView(state) {
         ),
       ),
     cartCount:
-      (state?.cart?.items || [])
-        .length,
+      screen === 'agent-cart' ? (state?.widgetModel?.lines || []).length : (state?.cart?.items || []).length,
     hasActiveOrder:
       Boolean(
         state?.activeOrder?.seq,
@@ -209,4 +215,13 @@ export function keyTermsFrom(view) {
   return [
     ...new Set(terms),
   ].slice(0, 50)
+}
+
+// Gate actions against the real screen first. Only an independent search's
+// outbound context is neutralized; references and the active-order flag survive
+// for genuine continuations and payment guards respectively.
+export function viewForRequest(view, intent) {
+  if (intent?.journey !== 'new-search' || !['search', 'refine', 'compare'].includes(intent?.name)) return view
+  return buildView({ screen: 'home', vertical: intent.slots?.vertical || 'food',
+    activeOrder: view?.hasActiveOrder ? { seq: 1 } : null })
 }

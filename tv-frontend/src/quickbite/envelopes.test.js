@@ -3,6 +3,13 @@ import test from 'node:test'
 import { paymentQrFromEnvelope, trackingFromEnvelope } from './envelopes.js'
 import { confirmedCodCheckout } from './payMode.js'
 
+test('a Zomato tracking descriptor and tracking URL cannot manufacture a payment QR', () => {
+  const checkout = { widget: 'text', text: 'Your order is placed!', images: [], tracking: { server: 'zomato', order_id: 'TEST-ORDER', ctx: {} }, vendor_widget: null }
+  assert.equal(trackingFromEnvelope(checkout).order_id, 'TEST-ORDER')
+  assert.equal(paymentQrFromEnvelope(checkout), '')
+  assert.equal(paymentQrFromEnvelope({ step: 'Confirming payment', order_status: "Your order's payment is incomplete", tracking_url: 'https://zoma.to/t/EXAMPLE' }), '')
+})
+
 test('explicit payment QR wins over unrelated envelope images', () => {
   const result = paymentQrFromEnvelope({ tracking: { payment_qr: 'data:image/png;base64,qr' }, images: ['https://example.com/item.png'] })
   assert.equal(result, 'data:image/png;base64,qr')

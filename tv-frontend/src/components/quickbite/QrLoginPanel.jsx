@@ -19,6 +19,7 @@ const QrLoginPanel = forwardRef(function QrLoginPanel({
   complete,
   ready,
   target,
+  providerLabel,
 }, ref) {
   const mobileUrl = sessionId
     ? `${MOBILE_APP_URL}${MOBILE_APP_URL.includes('?') ? '&' : '?'}session=${encodeURIComponent(sessionId)}`
@@ -28,7 +29,7 @@ const QrLoginPanel = forwardRef(function QrLoginPanel({
 
   useEffect(() => {
     if (!open || !mobileUrl) return
-    console.log(`[CommAgent QR] Exact phone login URL encoded in the QR (you can type this on your phone): ${mobileUrl}`)
+    console.log('[CommAgent QR] Phone login QR is available', { phonePage: MOBILE_APP_URL })
   }, [open, mobileUrl])
 
   useEffect(() => {
@@ -68,9 +69,11 @@ const QrLoginPanel = forwardRef(function QrLoginPanel({
       <header className="qb-panel-top"><QuickBiteLogo /></header>
       <main className="qb-panel-body qb-qr-body">
         <p className="qb-qr-eyebrow">CONNECT YOUR MERCHANTS</p>
-        <h1>{target === 'grocery' ? 'Unlock Grocery' : target === 'food' ? 'Unlock Food' : 'Scan to start shopping'}</h1>
+        <h1>{providerLabel ? `Reconnect ${providerLabel}` : target === 'grocery' ? 'Unlock Grocery' : target === 'food' ? 'Unlock Food' : 'Scan to start shopping'}</h1>
         <p className="qb-qr-description">
-          {target === 'grocery'
+          {providerLabel
+            ? `Connect ${providerLabel} on your phone, then retry the original request.`
+            : target === 'grocery'
             ? 'Connect Zepto or Swiggy on your phone to shop groceries.'
             : target === 'food'
               ? 'Connect Zomato or Swiggy on your phone to order food.'
