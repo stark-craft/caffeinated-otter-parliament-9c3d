@@ -1,6 +1,7 @@
 import {
   platformConnection,
 } from './envelopes.js'
+import { PROVIDERS, requestedProviders } from './providers.js'
 
 /* What a spoken search sends to the backend.
  *
@@ -72,6 +73,12 @@ export function searchPrompt(
 
   if (!said) return ''
 
+  const requested = requestedProviders(said)
+  if (requested.length) {
+    const names = requested.map(id => PROVIDERS[id].label).join(' and ')
+    return `${said}\n\n[Platforms: Use ${names} only for this request. If a requested provider is unavailable in this commerce session, explain that provider's connection error. Do not substitute another provider.]`
+  }
+
   const spec =
     VERTICALS[vertical] ||
     VERTICALS.food
@@ -82,17 +89,14 @@ export function searchPrompt(
         platformConnection(
           platforms,
           entry.group,
-        ).connected,
+        ).known && platformConnection(platforms, entry.group).connected,
     )
 
   /* Nothing connected is not a reason to drop the utterance: asking anyway
      lets the backend answer with its own "connect a platform first", which
      tells the user more than silence does. */
 
-  const targets =
-    connected.length
-      ? connected
-      : spec.platforms
+  const targets = connected
 
   const names =
     targets.map(
@@ -111,18 +115,20 @@ export function searchPrompt(
     )
 
   const scope =
-    names.length > 1
-      ? `${names.join(' and ')} are both connected. ${
+    !names.length
+      ? `No merchant connection has been confirmed for ${vertical || 'food'}. Explain which login is required.`
+      : names.length > 1
+      ? `Merchant login is confirmed for ${names.join(' and ')}. ${
           fillsCart
             ? spec.fill
             : spec.compare
         }`
-      : `Only ${names[0]} is connected — use ${names[0]} only.`
+      : `Merchant login is confirmed for ${names[0]} only — use ${names[0]} only.`
 
   /* Only the permitted platforms are named. An earlier draft added "do not use
      <other vertical>", but naming a platform in order to forbid it is exactly
      the prompt shape models get wrong - the safe constraint is the positive
      list alone. */
 
-  return `${said}\n\n[Platforms: ${scope}]`
+  return `${said}\n\n[Platforms: ${scope} If a provider is unavailable in this commerce session, explain its connection error.]`
 }

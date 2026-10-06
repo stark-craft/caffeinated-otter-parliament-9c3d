@@ -268,6 +268,7 @@ export function focusKeysFor(screen, model, { expanded = false } = {}) {
   const m = model || {};
   if (screen === "text") {
     return [
+      ...(m.reconnectProvider ? ['reconnect-provider'] : []),
       ...asArray(m.actions).map((_, i) => `text-action-${i}`),
       ...(m.retry ? ["retry"] : []),
     ];

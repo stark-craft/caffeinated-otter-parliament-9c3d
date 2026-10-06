@@ -30,6 +30,8 @@ export function trackingPhase(snapshot) {
 
   if (/\b(cancelled|canceled)\b/.test(text)) return 'cancelled'
 
+  if (paymentPending(snapshot)) return 'pay'
+
   if (/\bdelivered\b|\bdelivery complete(?:d)?\b/.test(text) || snapshot.done === true) {
     return 'delivered'
   }
@@ -51,6 +53,30 @@ export function trackingPhase(snapshot) {
   }
 
   return 'unknown'
+}
+
+export function paymentPending(snapshot) {
+  return [snapshot?.order_status, snapshot?.status, snapshot?.step].some(value =>
+    /\b(?:confirming payment|payment (?:is )?incomplete|payment pending|awaiting payment|unpaid)\b/i.test(String(value || '')))
+}
+
+export function reconcileTrackingSnapshot(previous, next) {
+  const phase = trackingPhase(next)
+  if (previous && trackingPhaseRank(phase) < trackingPhaseRank(trackingPhase(previous)) &&
+      phase !== 'cancelled' && !paymentPending(next)) {
+    return { ...next, step: previous.step, status: previous.status, order_status: previous.order_status,
+      title: previous.title, message: next.message || previous.message, done: previous.done }
+  }
+  return next
+}
+
+export async function withTrackingTimeout(request, milliseconds = 8000) {
+  let timer
+  try {
+    return await Promise.race([request, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Payment/order status did not respond. Check again or open the existing order in the provider app.')), milliseconds)
+    })])
+  } finally { clearTimeout(timer) }
 }
 
 export const PHASE_RANK = {

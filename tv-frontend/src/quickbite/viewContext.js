@@ -210,3 +210,12 @@ export function keyTermsFrom(view) {
     ...new Set(terms),
   ].slice(0, 50)
 }
+
+// Gate actions against the real screen first. Only an independent search's
+// outbound context is neutralized; references and the active-order flag survive
+// for genuine continuations and payment guards respectively.
+export function viewForRequest(view, intent) {
+  if (intent?.journey !== 'new-search' || !['search', 'refine', 'compare'].includes(intent?.name)) return view
+  return buildView({ screen: 'home', vertical: intent.slots?.vertical || 'food',
+    activeOrder: view?.hasActiveOrder ? { seq: 1 } : null })
+}

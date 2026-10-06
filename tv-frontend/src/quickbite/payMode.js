@@ -75,6 +75,7 @@ export function orderPlatform({
 } = {}) {
   return (
     tracking?.platform ||
+    (tracking?.server === 'zomato' ? 'Zomato' : '') ||
     cart?.platform ||
     cart?.store ||
     groceryCard?.platform ||
