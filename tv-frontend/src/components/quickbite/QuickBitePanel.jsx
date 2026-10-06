@@ -2,6 +2,7 @@ import {
   forwardRef,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,} from 'react'
@@ -27,6 +28,7 @@ import {
   trackingText,} from '../../quickbite/tracking.js'
 import { backTarget, recordScreenVisit, takePreviousScreen, editableCartFocusAfterArrow } from '../../quickbite/navigation.js'
 import { agentCartEditPrompt, editAgentCartQuantity } from '../../quickbite/agentCart.js'
+import { cartClearConfirmed } from '../../quickbite/cartState.js'
 import { missLabel } from '../../quickbite/missLabels.js'
 import { matchedDishLines, notFoundLabel } from '../../quickbite/restaurantMatch.js'
 import { routeIntent } from '../../quickbite/intents.js'
@@ -360,7 +362,7 @@ const QuickBitePanel = forwardRef(
     const [groceryResults, setGroceryResults] = useState([])
     const [stockedBasket, setStockedBasket] = useState(null)
     const [selectedGroceryCard, setSelectedGroceryCard] = useState(null)
-    const [focusKey, setFocusKey] = useState('start-shopping')
+    const [storedFocusKey, setFocusKey] = useState('start-shopping')
     const [
       selectedCategory,
       setSelectedCategory,
@@ -422,6 +424,9 @@ const QuickBitePanel = forwardRef(
     // Where a voice jump came from, so Back returns there once (navigation.js).
     const [jumpOrigin, setJumpOrigin] = useState(null)
     const [confirmStrip, setConfirmStrip] = useState(null)
+    // Preserve the logical target, but the dialog owns the only visible focus.
+    const focusKey = !open || confirmStrip ? null : storedFocusKey
+    const [cartClearResult, setCartClearResult] = useState('')
     const [stripIndex, setStripIndex] = useState(0)
     /* 'pay' or 'cancel_order'. It drives one thing: the "Press OK to confirm"
        notice. It is NOT an authorisation and nothing reads it to submit - the
@@ -667,7 +672,7 @@ const QuickBitePanel = forwardRef(
         }
         if (
           screen === 'delivered' ||
-          screen === 'cancelled'
+          screen === 'cancelled' || screen === 'cart-cleared'
         ) {
           return ['shop-more']
         }
@@ -686,6 +691,11 @@ const QuickBitePanel = forwardRef(
         cartExpanded,
         checkoutWithoutTracking,
       ])
+    useLayoutEffect(() => {
+      if (!open || confirmStrip) return
+      const valid = [...contentKeys, 'back', 'exit']
+      if (!valid.includes(storedFocusKey)) setFocusKey(contentKeys[0] || 'back')
+    }, [open, confirmStrip, contentKeys, storedFocusKey])
     useImperativeHandle(
       ref,
       () => ({
@@ -733,8 +743,8 @@ const QuickBitePanel = forwardRef(
         activeOrder,
       })
     }
-    useEffect(() => {
-      if (!open) {
+    useLayoutEffect(() => {
+      if (!open || confirmStrip) {
         return
       }
       const target =
@@ -743,14 +753,27 @@ const QuickBitePanel = forwardRef(
             `[data-qb-focus="${focusKey}"]`,
           )
       target
-        ?.scrollIntoView?.({
-          block: 'nearest',
-          behavior: 'smooth',
-        })
+        ?.focus?.({ preventScroll: true })
+      // scrollIntoView also scrolls horizontal ancestors during the panel's
+      // slide-in, which can clip Home and its focused CTA. Own only the body
+      // scroll; header/footer targets must never move the surrounding player.
+      const body = panelRef.current?.querySelector('.qb-panel-body')
+      if (target && body?.contains(target)) {
+        const bounds = body.getBoundingClientRect()
+        const surface = target.closest('.qb-compare-card, .qb-bcmp-row, .qb-cart-line') || target
+        const rect = surface.getBoundingClientRect()
+        const delta = rect.top < bounds.top + 8 ? rect.top - bounds.top - 8
+          : rect.bottom > bounds.bottom - 8 ? rect.bottom - bounds.bottom + 8 : 0
+        if (delta) body.scrollTo({ top: body.scrollTop + delta,
+          behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' })
+      }
     }, [
       focusKey,
       open,
       screen,
+      confirmStrip,
+      dishIndex,
+      productIndex,
     ])
     useEffect(() => {
       if (!open) {
@@ -1046,6 +1069,7 @@ const QuickBitePanel = forwardRef(
         setScreen(
           'delivered',
         )
+        setFocusKey('shop-more')
       }
     }, [
       trackingSnapshot,
@@ -1078,7 +1102,7 @@ const QuickBitePanel = forwardRef(
       setScreen(next, options)
       const defaultFocus = {
         home: 'start-shopping',
-        mode: 'mode-food',
+        mode: vertical === 'grocery' ? 'mode-grocery' : 'mode-food',
         gcategory: 'gcategory-0',
         gproduct: 'gproduct-card',
         gresults: groceryResults.some((card) => card.in_stock !== false)
@@ -1110,7 +1134,7 @@ const QuickBitePanel = forwardRef(
             ? 'checkout-action-0'
             : 'shop-more',
         pay:
-          'refresh-tracking',
+          checkoutWithoutTracking ? 'shop-more' : 'refresh-tracking',
         'payment-received':
           'track-order',
         preparing:
@@ -1123,6 +1147,7 @@ const QuickBitePanel = forwardRef(
         // through to 'back', focusing something the ring does not contain.
         cancelled:
           'shop-more',
+        'cart-cleared': 'shop-more',
       }
       setFocusKey(
         nextFocus ||
@@ -1252,8 +1277,7 @@ const QuickBitePanel = forwardRef(
       setConfirmStrip(null)
       setStripIndex(0)
       if (option.intent === 'cart-destructive') {
-        if (option.fromCheckout) return submitCheckoutAction(option.backendLabel)
-        return askFromWidget(option.backendLabel)
+        return submitCartDestruction(option.backendLabel, option.fromCheckout)
       }
       if (option.intent === 'stop') return
       if (option.retry && lastRequest) {
@@ -1306,7 +1330,7 @@ const QuickBitePanel = forwardRef(
    // swallow everything else
     }
     function shopMore() {
-      const finishedOrder = ORDER_SCREENS.has(screen)
+      const finishedOrder = ORDER_SCREENS.has(screen) || screen === 'cart-cleared'
       if (finishedOrder) {
         screenHistoryRef.current = []
         suppressedTrackingPhaseRef.current = null
@@ -1319,10 +1343,8 @@ const QuickBitePanel = forwardRef(
       setCheckoutPayment('')
       setOrderSubmitted(false)
       setLastCheckoutAction('')
-      if (vertical === 'grocery') {
-        return setScreenAndFocus(groceryCategory ? 'gproduct' : 'gcategory', undefined, { replace: finishedOrder })
-      }
-      return setScreenAndFocus(selectedCategory ? 'dish' : 'category', undefined, { replace: finishedOrder })
+      // Browsing does not mutate or erase a valid cart. Back can return to it.
+      return setScreenAndFocus('mode', vertical === 'grocery' ? 'mode-grocery' : 'mode-food', { replace: finishedOrder })
     }
     function resetSearchContext(nextVertical) {
       journeyEpochRef.current += 1
@@ -1835,6 +1857,83 @@ const QuickBitePanel = forwardRef(
         { label: 'Confirm', intent: 'cart-destructive', backendLabel: label, fromCheckout },
       ] })
       setStripIndex(0)
+    }
+    function clearCartPresentation(envelope) {
+      setCartClearResult(envelope?.text || envelope?.payload?.message || envelope?.payload?.title || 'Your cart is empty.')
+      setCart(null)
+      setCartEnvelope(null)
+      setStockedBasket(null)
+      setSelectedGroceryCard(null)
+      setSelectedProduct(null)
+      setSelectedItem(null)
+      setSelectedVariantIndex(0)
+      setSelectedRestaurant(null)
+      setQuantity(1)
+      delete widgetModelsRef.current['agent-cart']
+      delete widgetModelsRef.current.text
+      setWidgetModelState(null)
+      setCartExpanded(false)
+      setCheckoutQr('')
+      setBrokenPaymentQr('')
+      setCheckoutPayment('')
+      setCheckoutWithoutTracking(false)
+      setOrderSubmitted(false)
+      setLastCheckoutAction('')
+      setConfirmStrip(null)
+      setStripIndex(0)
+      setJumpOrigin(null)
+      setNotice('')
+      retireAwaitingConfirm()
+      screenHistoryRef.current = []
+      setScreenAndFocus('cart-cleared', 'shop-more', { replace: true })
+      // Active-order evidence belongs to App and is deliberately preserved.
+    }
+    async function submitCartDestruction(label, fromCheckout) {
+      const epoch = journeyEpochRef.current
+      if (checkoutInFlightRef.current || widgetActionRef.current?.epoch === epoch) return
+      const request = { epoch }
+      checkoutInFlightRef.current = true
+      widgetActionRef.current = request
+      setLoadingPhase(fromCheckout ? 'checkout' : 'agent')
+      setFocusKey('back')
+      setFlowError(null)
+      try {
+        const envelope = await sendSilent(label, { provider: providerId(cartPlatformName || platformMentioned(widgetModel), vertical) })
+        if (epoch !== journeyEpochRef.current) return
+        if (cartClearConfirmed(envelope)) clearCartPresentation(envelope)
+        else if (trackingFromEnvelope(envelope) || confirmedCodCheckout(envelope) ||
+                 paymentQrFromEnvelope(envelope, { allowImageFallback: false })) {
+          // Preserve the existing unexpected-order/payment defense. Evidence
+          // returned by the backend cannot be mistaken for a cleared cart.
+          const tracking = trackingFromEnvelope(envelope)
+          const updatedCart = cartFromEnvelope(envelope)
+          if (updatedCart) setCart(updatedCart)
+          setCartEnvelope(envelope)
+          setCheckoutPayment(paymentMethodFromEnvelope(envelope))
+          setCheckoutQr(paymentQrFromEnvelope(envelope, { allowImageFallback: Boolean(tracking) && !confirmedCodCheckout(envelope) }))
+          setCheckoutWithoutTracking(!tracking)
+          setOrderSubmitted(true)
+          if (!tracking) onClearActiveOrder?.()
+          setScreenAndFocus('pay', tracking ? 'refresh-tracking' : 'shop-more')
+        } else {
+          // A decline may leave the cart intact. Show the actual response;
+          // only a confirmed clear retires the prior bill, draft and history.
+          showEnvelope(envelope)
+        }
+      } catch (error) {
+        if (epoch !== journeyEpochRef.current || error.kind === 'superseded-search') return
+        setNotice('Cart cancellation was not confirmed. Review the provider cart before trying again.')
+        if (fromCheckout) {
+          setFlowError({ kind: 'basket_cart', platform: cartPlatformName, message: error.message })
+          setFocusKey('retry')
+        } else showEnvelope({ widget: 'text', text: error.message || 'Cart cancellation was not confirmed.' })
+      } finally {
+        checkoutInFlightRef.current = false
+        if (widgetActionRef.current === request) {
+          widgetActionRef.current = null
+          setLoadingPhase('')
+        }
+      }
     }
     async function reviewEditedCart() {
       const model = widgetModel
@@ -2885,7 +2984,7 @@ const QuickBitePanel = forwardRef(
       return {
         'data-qb-focus':
           key,
-        onMouseEnter:
+        onMouseMove:
           () =>
             setFocusKey(
               key,
@@ -3022,7 +3121,7 @@ const QuickBitePanel = forwardRef(
                       '--qb-dish-x': `${offset * 158}px`,
                       visibility: visible ? 'visible' : 'hidden',
                     }}
-                    onMouseEnter={() => {
+                    onMouseMove={() => {
                       setProductIndex(index)
                       setFocusKey('gproduct-card')
                     }}
@@ -3422,7 +3521,7 @@ const QuickBitePanel = forwardRef(
                             ? 'visible'
                             : 'hidden',
                       }}
-                      onMouseEnter={() => {
+                      onMouseMove={() => {
                         setDishIndex(
                           index,
                         )
@@ -3920,6 +4019,7 @@ const QuickBitePanel = forwardRef(
                           return (
                             <button
                               key={`${variant.label}-${index}`}
+                              aria-pressed={selectedVariantIndex === index}
                               className={`qb-variant-button ${
                                 selectedVariantIndex ===
                                   index
@@ -4801,19 +4901,33 @@ const QuickBitePanel = forwardRef(
           ),
       cancelled:
         renderCancelled,
+      'cart-cleared': () => <>
+        {renderHeader('Cart cleared')}
+        <div className="qb-review">
+        <p className="qb-subtitle" role="status">{cartClearResult}</p>
+        <button className={`qb-primary-button ${focusKey === 'shop-more' ? 'is-focused' : ''}`} {...focusableProps('shop-more')}>Shop More</button>
+        </div>
+      </>,
     }
     return (
       <aside
         ref={panelRef}
         data-screen={screen}
         data-vertical={vertical}
+        data-focus-key={confirmStrip ? `confirm-${stripIndex}` : focusKey}
         className={`qb-panel ${
           open
             ? 'is-open'
             : ''
         }`}
         aria-hidden={!open}
+        inert={!open}
         aria-label="QuickBite food ordering"
+        onTransitionEnd={event => {
+          if (!open || event.target !== event.currentTarget || event.propertyName !== 'transform') return
+          const selector = confirmStrip ? `[data-qb-confirm="${stripIndex}"]` : `[data-qb-focus="${focusKey}"]`
+          panelRef.current?.querySelector(selector)?.focus({ preventScroll: true })
+        }}
       >
         <header className="qb-panel-top">
           <QuickBiteLogo />
@@ -4826,6 +4940,8 @@ const QuickBitePanel = forwardRef(
                 : ''
             }`}
             key={screen}
+            inert={Boolean(confirmStrip)}
+            aria-hidden={confirmStrip ? true : undefined}
           >
             {/* One notice slot for every screen. It used to be repeated per
                 screen and was present on only 11 of 18, so an agent reply
@@ -4842,14 +4958,17 @@ const QuickBitePanel = forwardRef(
             ]?.()}
           </div>
           <ConfirmStrip
-            strip={confirmStrip}
+            strip={open ? confirmStrip : null}
             focusIndex={stripIndex}
+            onFocusIndex={setStripIndex}
             onPick={(option) => handleStripPick(option)}
           />
         </main>
         <nav
           className="qb-bottom-nav"
           aria-label="QuickBite navigation"
+          inert={Boolean(confirmStrip)}
+          aria-hidden={confirmStrip ? true : undefined}
         >
           <button
             aria-label="Back"

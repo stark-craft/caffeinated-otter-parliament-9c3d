@@ -1,3 +1,6 @@
+import { providerId } from './providers.js'
+import { paymentPresentation } from './payMode.js'
+
 const PREPARING = [
   'placed',
   'in the kitchen',
@@ -28,7 +31,8 @@ export function trackingPhase(snapshot) {
 
   const text = trackingText(snapshot).toLowerCase()
 
-  if (/\b(cancelled|canceled)\b/.test(text)) return 'cancelled'
+  if ([snapshot.step, snapshot.order_status, snapshot.status, snapshot.title, snapshot.message]
+      .some(value => /\b(cancelled|canceled)\b/i.test(String(value || '')))) return 'cancelled'
 
   if (paymentPending(snapshot)) return 'pay'
 
@@ -60,7 +64,25 @@ export function paymentPending(snapshot) {
     /\b(?:confirming payment|payment (?:is )?incomplete|payment pending|awaiting payment|unpaid)\b/i.test(String(value || '')))
 }
 
-export function reconcileTrackingSnapshot(previous, next) {
+export function reconcileTrackingSnapshot(previous, next, { descriptor, payment } = {}) {
+  const prior = previous || descriptor
+  const priorPhase = trackingPhase(prior)
+  const provider = providerId(prior?.platform || prior?.server || descriptor?.platform || descriptor?.server,
+    prior?.kind || descriptor?.kind)
+  // The reproduced Instamart COD contract uses this explicit shape to report
+  // no active order. Generic empty/waiting responses and other providers do
+  // not establish a cancellation. Reconcile before monotonic progression.
+  if (provider === 'swiggy_instamart' && prior?.order_id &&
+      (!descriptor?.order_id || descriptor.order_id === prior.order_id) &&
+      ['preparing', 'on-the-way'].includes(priorPhase) &&
+      paymentPresentation({ payment: payment || prior.payment || prior.payment_method || descriptor?.payment || descriptor?.payment_method }) === 'cod' &&
+      (next.active_order_absent === true || !Object.hasOwn(next, 'active_order_absent')) &&
+      next.waiting === true && next.order_id === null && next.step === null &&
+      next.done === false && trackingPhase(next) === 'unknown' && !next.error && !next.stale) {
+    return { ...prior, ...next, order_id: prior.order_id, step: 'Cancelled', order_status: 'Cancelled',
+      status: 'Cancelled', done: true, payment_qr: null, reconciliation: 'active-order-disappeared',
+      message: next.message || 'The provider no longer reports this order as active.' }
+  }
   const phase = trackingPhase(next)
   if (previous && trackingPhaseRank(phase) < trackingPhaseRank(trackingPhase(previous)) &&
       phase !== 'cancelled' && !paymentPending(next)) {
@@ -124,6 +146,10 @@ export function normalizeTrackingSnapshot(response) {
 
   return {
     ...source,
+    // Preserve explicit absence rather than interpreting mapper defaults as
+    // provider evidence that an order disappeared.
+    active_order_absent: source.waiting === true && source.step === null &&
+      Object.hasOwn(source, 'order_id') && source.order_id === null && source.done === false,
     order_id:
       source.order_id ||
       source.orderId ||

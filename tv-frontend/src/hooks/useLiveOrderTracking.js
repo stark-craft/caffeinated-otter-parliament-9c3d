@@ -46,7 +46,9 @@ export function useLiveOrderTracking({
   }, [activeOrder?.seq]);
   const acceptSnapshot = useCallback(
     (raw) => {
-      const next = reconcileTrackingSnapshot(snapshotRef.current, normalizeTrackingSnapshot(raw));
+      const next = reconcileTrackingSnapshot(snapshotRef.current, normalizeTrackingSnapshot(raw), {
+        descriptor: descriptorRef.current, payment: activeOrder?.payment,
+      });
       if (next.order_id && descriptorRef.current?.order_id !== next.order_id) {
         descriptorRef.current = {
           ...descriptorRef.current,
@@ -80,7 +82,7 @@ export function useLiveOrderTracking({
       setError("");
       return next;
     },
-    [onDescriptorChange],
+    [onDescriptorChange, activeOrder?.payment],
   );
   useEffect(() => {
     if (!sessionId || !activeOrder?.tracking) return undefined;

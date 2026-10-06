@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import QuickBiteLogo from './QuickBiteLogo.jsx'
 import { qrFocusAfterArrow } from '../../quickbite/navigation.js'
@@ -26,6 +26,16 @@ const QrLoginPanel = forwardRef(function QrLoginPanel({
     : ''
   const canRetry = Boolean(error || complete)
   const [focusAction, setFocusAction] = useState('close')
+  const panelRef = useRef(null)
+  useLayoutEffect(() => {
+    if (!open) return
+    const focus = () => panelRef.current?.querySelector(`[data-qb-focus="${focusAction}"]`)?.focus({ preventScroll: true })
+    focus()
+    // A newly opened panel may still inherit visibility:hidden until the
+    // opening style is resolved. Retry after that frame, never on a timer.
+    const frame = window.requestAnimationFrame(focus)
+    return () => window.cancelAnimationFrame(frame)
+  }, [open, focusAction, canRetry])
 
   useEffect(() => {
     if (!open || !mobileUrl) return
@@ -65,7 +75,11 @@ const QrLoginPanel = forwardRef(function QrLoginPanel({
   }), [open, onClose, onRetry, canRetry, focusAction])
 
   return (
-    <aside className={`qb-panel qb-qr-panel ${open ? 'is-open' : ''}`} aria-hidden={!open} aria-label="QuickBite phone pairing">
+    <aside ref={panelRef} inert={!open} data-focus-key={focusAction} className={`qb-panel qb-qr-panel ${open ? 'is-open' : ''}`} aria-hidden={!open} aria-label="QuickBite phone pairing"
+      onTransitionEnd={event => {
+        if (open && event.target === event.currentTarget && event.propertyName === 'transform')
+          panelRef.current?.querySelector(`[data-qb-focus="${focusAction}"]`)?.focus({ preventScroll: true })
+      }}>
       <header className="qb-panel-top"><QuickBiteLogo /></header>
       <main className="qb-panel-body qb-qr-body">
         <p className="qb-qr-eyebrow">CONNECT YOUR MERCHANTS</p>
@@ -95,10 +109,10 @@ const QrLoginPanel = forwardRef(function QrLoginPanel({
         </p>
         {connectionError && <p className="qb-qr-status" role="alert">{connectionError}</p>}
         {sessionId && <p className="qb-qr-session">Session: {sessionId}</p>}
-        {canRetry && <button type="button" className={`qb-qr-retry ${focusAction === 'retry' ? 'is-focused' : ''}`} onClick={onRetry} onMouseEnter={() => setFocusAction('retry')} onFocus={() => setFocusAction('retry')}>Try pairing again</button>}
+        {canRetry && <button type="button" data-qb-focus="retry" className={`qb-qr-retry ${open && focusAction === 'retry' ? 'is-focused' : ''}`} onClick={onRetry} onMouseMove={() => setFocusAction('retry')} onFocus={() => setFocusAction('retry')}>Try pairing again</button>}
       </main>
       <nav className="qb-bottom-nav" aria-label="QuickBite navigation">
-        <button type="button" className={`qb-exit-button ${focusAction === 'close' ? 'is-focused' : ''}`} onClick={onClose} onMouseEnter={() => setFocusAction('close')} onFocus={() => setFocusAction('close')}>Close</button>
+        <button type="button" data-qb-focus="close" className={`qb-exit-button ${open && focusAction === 'close' ? 'is-focused' : ''}`} onClick={onClose} onMouseMove={() => setFocusAction('close')} onFocus={() => setFocusAction('close')}>Close</button>
       </nav>
     </aside>
   )

@@ -55,7 +55,7 @@ export function isOrderAction(label) {
 }
 export function isCartDestructiveAction(label) {
   return /^(?:no[,\s]+)?cancel(?: it)?[.!]?$/i.test(String(label || '').trim()) ||
-    /^clear (?:my |the )?cart[.!]?$/i.test(String(label || '').trim());
+    /^(?:clear|cancel) (?:my |the )?cart[.!]?$/i.test(String(label || '').trim());
 }
 const MENTIONED_RE = /\b(swiggy instamart|instamart|zepto|swiggy|zomato)\b/i;
 const MENTIONED_NAMES = {

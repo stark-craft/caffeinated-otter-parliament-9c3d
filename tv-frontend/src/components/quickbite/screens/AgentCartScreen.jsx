@@ -31,7 +31,7 @@ export default function AgentCartScreen({
         {shown.map((line, i) => (
           <li
             key={`${line.name}-${i}`}
-            className={`qb-cart-line ${line.in_stock ? "" : "is-out"} ${focusKey === `acart-minus-${i}` || focusKey === `acart-plus-${i}` ? 'is-focused' : ''}`}
+            className={`qb-cart-line ${line.in_stock ? "" : "is-out"} ${focusKey === `acart-minus-${i}` || focusKey === `acart-plus-${i}` ? 'has-active-control' : ''}`}
           >
             <Media
               src={line.image_url}
@@ -51,8 +51,8 @@ export default function AgentCartScreen({
               )}
             </span>
             {model?.editable ? <span className="qb-quantity-controls qb-cart-quantity">
-              <button type="button" aria-label={`Decrease ${line.name} quantity`} disabled={line.quantity <= 1}
-                className={focusKey === `acart-minus-${i}` ? 'is-focused' : ''} {...focusableProps(`acart-minus-${i}`)}>−</button>
+              <button type="button" aria-label={`Decrease ${line.name} quantity`} aria-disabled={line.quantity <= 1}
+                className={`${line.quantity <= 1 ? 'is-disabled' : ''} ${focusKey === `acart-minus-${i}` ? 'is-focused' : ''}`} {...focusableProps(`acart-minus-${i}`)}>−</button>
               <strong aria-label={`${line.name} quantity`}>{line.quantity}</strong>
               <button type="button" aria-label={`Increase ${line.name} quantity`}
                 className={focusKey === `acart-plus-${i}` ? 'is-focused' : ''} {...focusableProps(`acart-plus-${i}`)}>+</button>

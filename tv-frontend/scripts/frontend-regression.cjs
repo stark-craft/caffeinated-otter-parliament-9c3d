@@ -8,6 +8,9 @@ const base = process.argv[2] || 'http://127.0.0.1:5174';
 const LABELS = { zomato: 'Zomato', swiggy_food: 'Swiggy Food', swiggy_instamart: 'Swiggy Instamart', zepto: 'Zepto' };
 const WORDS = { zomato: 'Order pav bhaji from Zomato', swiggy_food: 'Find dumplings from Swiggy Food', swiggy_instamart: 'Get kimchi ingredients from Swiggy Instamart', zepto: 'Get kimchi ingredients from Zepto' };
 const evidence = [];
+const focusEvidence = [];
+const auditDir = '/tmp/quickbite-final-audit';
+fs.mkdirSync(auditDir, { recursive: true });
 const pixel = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1sAAAAASUVORK5CYII=';
 const panelSelector = 'aside[aria-label="QuickBite food ordering"][aria-hidden="false"]';
 
@@ -18,7 +21,7 @@ function result(id, basket = false) {
 }
 
 async function fixture(browser, handler, initialState = {}) {
-  const context = await browser.newContext();
+  const context = await browser.newContext({ viewport: { width: 1920, height: 1080 }, reducedMotion: 'reduce' });
   const page = await context.newPage();
   page.setDefaultTimeout(12000);
   const state = { statuses: { zomato: true, swiggy: true, zepto: true }, sessionPlatforms: [
@@ -46,7 +49,11 @@ async function fixture(browser, handler, initialState = {}) {
       const request = route.request().postDataJSON();
       state.requests.push({ ...request, session_id: '[redacted]' });
       body = await handler(request, state, path);
-    } else if (path === '/api/track') body = await handler(route.request().postDataJSON(), state, path);
+    } else if (path === '/api/track') {
+      state.trackRequests ||= [];
+      state.trackRequests.push(route.request().postDataJSON());
+      body = await handler(route.request().postDataJSON(), state, path);
+    }
     else throw new Error(`Unexpected backend operation ${path}`);
     await route.fulfill({ status: body?.__fixtureStatus || 200, contentType: 'application/json', body: JSON.stringify(body) });
   });
@@ -59,6 +66,74 @@ async function fixture(browser, handler, initialState = {}) {
   const click = key => page.locator(`${panelSelector} [data-qb-focus="${key}"]`).click();
   const finish = async () => { await Promise.all(state.logging); assert.deepEqual(state.errors, []); await context.close(); };
   return { context, page, state, speak, waitScreen, click, finish };
+}
+
+async function visibleFocus(f, label, screenshot) {
+  await f.page.waitForTimeout(350); // Existing scrolling/panel animations, not focus-ring fades.
+  const snapshot = await f.page.evaluate(() => {
+    const panel = document.querySelector('aside.qb-panel.is-open');
+    const visible = element => {
+      const rect = element.getBoundingClientRect();
+      if (!rect.width || !rect.height) return false;
+      let clip = { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
+      for (let node = element; node; node = node.parentElement) {
+        const style = getComputedStyle(node);
+        if (style.visibility === 'hidden' || style.display === 'none' || Number(style.opacity) === 0) return false;
+        if (/(hidden|auto|scroll)/.test(style.overflow + style.overflowY + style.overflowX)) {
+          const bounds = node.getBoundingClientRect();
+          clip = { left: Math.max(clip.left, bounds.left), top: Math.max(clip.top, bounds.top),
+            right: Math.min(clip.right, bounds.right), bottom: Math.min(clip.bottom, bounds.bottom) };
+        }
+      }
+      return rect.right > clip.left && rect.left < clip.right && rect.bottom > clip.top && rect.top < clip.bottom;
+    };
+    const surfaces = [...document.querySelectorAll('aside.qb-panel button, aside.qb-panel .qb-compare-card, aside.qb-panel .qb-bcmp-row, aside.qb-panel .qb-cart-line')].filter(visible);
+    const detail = element => {
+      const style = getComputedStyle(element);
+      return { tag: element.tagName, key: element.dataset.qbFocus || element.dataset.qbConfirm || null,
+        classes: element.className, text: element.textContent.trim().slice(0, 90),
+        border: style.borderColor, shadow: style.boxShadow, outline: style.outline,
+        background: style.backgroundImage, nativeFocus: element === document.activeElement,
+        ownsNativeFocus: element === document.activeElement || element.contains(document.activeElement),
+        hasStrongRing: style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) >= 2 ||
+          parseFloat(style.borderWidth) >= 2 && /rgb\(255, (149, 32|196, 0)\)/.test(style.borderColor) ||
+          style.backgroundImage.includes('rgb(255, 255, 0)') };
+    };
+    const strong = element => {
+      const style = getComputedStyle(element);
+      const nativeRing = style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) >= 2;
+      const glow = style.boxShadow !== 'none' && /0px 0px/.test(style.boxShadow) && /rgba?\(255, (122|149|179)/.test(style.boxShadow);
+      const border = parseFloat(style.borderWidth) >= 2 && /rgb\(255, (149, 32|196, 0)\)/.test(style.borderColor);
+      const gradientRing = style.backgroundImage.includes('rgb(255, 255, 0)');
+      const activeCard = element.classList.contains('is-focused') &&
+        (parseFloat(style.borderWidth) >= 2 && style.borderColor !== 'rgba(0, 0, 0, 0)' || style.boxShadow !== 'none');
+      return nativeRing || glow || border || gradientRing || activeCard;
+    };
+    const dialog = panel.querySelector('.qb-confirm-strip');
+    return { screen: panel.dataset.screen || 'reconnect', focusKey: panel.dataset.focusKey,
+      focused: surfaces.filter(strong).map(detail),
+      underlying: dialog ? surfaces.filter(element => !dialog.contains(element) && strong(element)).map(detail) : [],
+      confirmation: dialog ? surfaces.filter(element => dialog.contains(element) && strong(element)).map(detail) : [] };
+  });
+  focusEvidence.push({ label, ...snapshot });
+  fs.writeFileSync(`${auditDir}/focus-evidence.json`, JSON.stringify(focusEvidence, null, 2));
+  if (snapshot.focused.length !== 1) {
+    await f.page.screenshot({ path: `${auditDir}/focus-failure.png` });
+    console.error('FOCUS candidates', await f.page.locator('aside.qb-panel.is-open .is-focused').evaluateAll(elements => elements.map(element => ({
+      classes: element.className, rect: element.getBoundingClientRect().toJSON(), style: getComputedStyle(element).cssText,
+      shadow: getComputedStyle(element).boxShadow, border: getComputedStyle(element).borderColor,
+      background: getComputedStyle(element).backgroundImage,
+    }))));
+  }
+  assert.equal(snapshot.focused.length, 1, `${label}: visible strong focus ${JSON.stringify(snapshot)}`);
+  assert.equal(snapshot.focused[0].ownsNativeFocus, true, `${label}: native and TV focus must agree`);
+  assert.equal(snapshot.focused[0].hasStrongRing, true, `${label}: focus requires a strong ring, not only a glow`);
+  if (snapshot.confirmation.length) {
+    assert.equal(snapshot.confirmation.length, 1, label);
+    assert.equal(snapshot.underlying.length, 0, label);
+  }
+  if (screenshot) await f.page.screenshot({ path: `${auditDir}/${screenshot}.png` });
+  return snapshot;
 }
 
 async function sequences(browser) {
@@ -131,14 +206,19 @@ async function mismatchAndAvailability(browser) {
     await f.page.getByRole('heading', { name: /Zomato is not connected in this session/ }).waitFor();
     await f.page.getByRole('button', { name: 'Reconnect Zomato', exact: true }).click();
     await f.page.getByRole('heading', { name: 'Reconnect Zomato', exact: true }).waitFor();
+    await visibleFocus(f, 'Provider reconnect Close');
     const count = f.state.requests.length;
     f.state.pairingComplete = true;
     await f.page.waitForTimeout(2300);
     await f.page.getByRole('heading', { name: 'Reconnect Zomato', exact: true }).waitFor();
+    await visibleFocus(f, 'Reconnect retry after phone setup');
+    await f.page.keyboard.press('ArrowDown'); await visibleFocus(f, 'Reconnect Close after Retry');
+    await f.page.keyboard.press('ArrowUp'); await visibleFocus(f, 'Reconnect Retry after Close');
     assert.equal(f.state.requests.length, count, 'reconnect must not replay chat or checkout');
     f.state.statuses.zomato = true;
     await f.page.waitForTimeout(2300);
     await f.waitScreen('text');
+    await visibleFocus(f, 'Original error restored after reconnect');
     response = result('zomato');
     await f.click('retry');
     await f.waitScreen('restaurant');
@@ -268,8 +348,10 @@ async function payment(browser, platform) {
     await f.page.locator(`${panelSelector} [data-qb-focus="checkout-action-0"]`).evaluate(button => { button.click(); button.click(); });
     if (!zomato) {
       await f.page.getByText('Cash on delivery', { exact: true }).waitFor();
+      await visibleFocus(f, `${platform} COD Pay`);
     } else {
       await f.page.getByRole('alert').filter({ hasText: 'Zomato has not returned payment instructions yet' }).waitFor();
+      await visibleFocus(f, 'Zomato bounded missing-payment Pay');
       assert.equal(await f.page.locator('.qb-pay .qb-spinner').count(), 0);
       assert.equal(await f.page.getByRole('img', { name: 'Payment QR code' }).count(), 0);
       await f.click('refresh-tracking');
@@ -277,6 +359,7 @@ async function payment(browser, platform) {
       f.state.statuses = { zomato: false, swiggy: false, zepto: false };
       await f.click('exit'); await f.page.keyboard.press('Enter');
       await f.waitScreen('pay');
+      await visibleFocus(f, 'Existing Zomato order reopened after auth loss');
       await f.page.getByText('₹205.81', { exact: true }).waitFor();
       status = 'qr'; await f.click('refresh-tracking');
       await f.page.waitForFunction(image => document.querySelector('.qb-payment-qr')?.getAttribute('src') === image, pixel);
@@ -290,8 +373,10 @@ async function payment(browser, platform) {
       await f.page.getByRole('heading', { name: 'Payment received', exact: true }).waitFor();
       await f.click('track-order'); status = 'travelling'; await f.click('refresh-tracking');
       await f.waitScreen('on-the-way');
+      await visibleFocus(f, 'Zomato On the way tracking');
       status = 'delivered'; await f.click('refresh-tracking');
       await f.waitScreen('delivered');
+      await visibleFocus(f, 'Zomato Delivered');
       assert.ok(polls >= 8);
     }
     assert.equal(orders, 1, 'status checks and double clicks must not replay checkout');
@@ -344,6 +429,14 @@ async function editableCarts(browser) {
       assert.equal(await f.page.locator('.qb-cart-editor .qb-cart-line').count(), 2);
       await f.page.locator(`${panelSelector} .qb-platform-badge`).filter({ hasText: label }).first().waitFor();
       await focus('acart-plus-0');
+      await f.page.keyboard.press('ArrowLeft'); await focus('acart-minus-0');
+      await f.page.keyboard.press('Enter');
+      await f.page.locator('[aria-label="Napa Cabbage quantity"]').filter({ hasText: /^1$/ }).waitFor();
+      assert.equal(await f.page.locator('[data-qb-focus="acart-minus-0"]').getAttribute('aria-disabled'), 'true');
+      await visibleFocus(f, `${variant} minimum decrement has coherent disabled/native/remote focus`);
+      await f.page.keyboard.press('Enter');
+      assert.equal(await f.page.locator('[aria-label="Napa Cabbage quantity"]').innerText(), '1');
+      await f.page.keyboard.press('ArrowRight'); await f.page.keyboard.press('Enter');
       await f.page.keyboard.press('ArrowDown'); await focus('acart-plus-1');
       await f.page.keyboard.press('ArrowLeft'); await focus('acart-minus-1');
       await f.page.keyboard.press('ArrowRight'); await focus('acart-plus-1');
@@ -374,7 +467,7 @@ async function editableCarts(browser) {
       assert.equal(cancellations, 0);
       await f.click('checkout-action-1');
       await f.page.getByRole('button', { name: 'Confirm', exact: true }).evaluate(button => { button.click(); button.click(); });
-      await f.waitScreen('agent-cart');
+      await f.waitScreen('cart-cleared');
       await f.page.getByText('Your cart is empty.', { exact: true }).waitFor();
       assert.equal(cancellations, 1);
       assert.equal(orders, 0);
@@ -468,7 +561,7 @@ async function destructiveTextActions(browser) {
       await f.page.getByRole('button', { name: 'Keep cart', exact: true }).click();
       await f.click('text-action-0');
       await f.page.getByRole('button', { name: 'Confirm', exact: true }).evaluate(button => { button.click(); button.click(); });
-      await f.waitScreen('agent-cart');
+      await f.waitScreen('cart-cleared');
       assert.equal(clears, 1);
       assert.equal(f.state.requests.at(-1).message, label);
     } finally { await f.finish(); }
@@ -491,7 +584,9 @@ async function destructiveTextActions(browser) {
     await widgetRace(browser);
     await destructiveTextActions(browser);
     for (const platform of ['Zomato','Swiggy','Swiggy Instamart','Zepto']) await payment(browser, platform);
+    await require('./final-frontend-audit.cjs')(browser, { fixture, visibleFocus, panelSelector, auditDir });
     fs.writeFileSync('/tmp/quickbite-provider-evidence.json', JSON.stringify(evidence, null, 2));
-    console.log('PASS all browser regressions. Sanitized scenario traces: /tmp/quickbite-provider-evidence.json');
+    fs.writeFileSync(`${auditDir}/focus-evidence.json`, JSON.stringify(focusEvidence, null, 2));
+    console.log('PASS all 40 browser scenarios. Sanitized traces: /tmp/quickbite-provider-evidence.json; focus and screenshots: ' + auditDir);
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

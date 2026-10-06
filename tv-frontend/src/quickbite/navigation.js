@@ -38,6 +38,7 @@ export const BACK_SCREEN = {
   'on-the-way': 'preparing',
   delivered: 'on-the-way',
   cancelled: 'pay',
+  'cart-cleared': 'mode',
 }
 
 export function backScreenFor(screen, vertical) {

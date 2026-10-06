@@ -17,10 +17,11 @@ export default function BasketCompareScreen({
       )}
       <ul className="qb-bcmp-rows">
         {model.platforms.map((p, i) => (
-          <li key={p.key} className={`qb-bcmp-row ${p.best ? "is-best" : ""}`}>
+          <li key={p.key} className={`qb-bcmp-row ${p.best ? "is-best" : ""} ${focusKey === `bcmp-fill-${i}` ? 'is-focused' : ''}`}>
             <div className="qb-bcmp-head">
               <strong><PlatformBadge platform={p.name} /></strong>
               <span>{rupees(p.total)}</span>
+              {p.best && <span className="qb-best-label">Best</span>}
             </div>
             <div className="qb-bcmp-bar">
               <span style={{ width: `${((p.total || 0) / max) * 100}%` }} />
@@ -29,7 +30,7 @@ export default function BasketCompareScreen({
               <p className="qb-bcmp-missing">Missing: {p.missing.join(", ")}</p>
             )}
             <button
-              className={`${p.best ? "qb-primary-button" : "qb-secondary-button"} ${focusKey === `bcmp-fill-${i}` ? "is-focused" : ""}`}
+              className={p.best ? "qb-primary-button" : "qb-secondary-button"}
               {...focusableProps(`bcmp-fill-${i}`)}
             >
               Fill {p.name} cart

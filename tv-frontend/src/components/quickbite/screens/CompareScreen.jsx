@@ -41,7 +41,7 @@ export default function CompareScreen({
             </p>
             <p className="qb-compare-price">{rupees(e.price)}</p>
             <button
-              className={`qb-primary-button ${focusKey === `cmp-order-${i}` ? "is-focused" : ""}`}
+              className="qb-primary-button"
               {...focusableProps(`cmp-order-${i}`)}
             >
               Order on {e.platform}
