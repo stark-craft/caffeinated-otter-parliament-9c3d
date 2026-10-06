@@ -1,3 +1,4 @@
+import { providerId, PROVIDERS } from './providers.js';
 const asArray = (value) => (Array.isArray(value) ? value : []);
 const asObject = (value) =>
   value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -7,7 +8,7 @@ function firstArray(...values) {
 `image_url` it produces, but these mappers also fall back to `image` and
 `thumbnail`, which nothing checks — so the check lives where the value is
 read. Anything that is not http(s) becomes the emoji placeholder. */
-function safeImageUrl(...candidates) {
+export function safeImageUrl(...candidates) {
   for (const candidate of candidates) {
     const url = String(candidate || "").trim();
     if (/^https?:\/\//i.test(url)) return url;
@@ -118,7 +119,8 @@ export function groceryCardsFromEnvelope(envelope) {
     .map((card) => ({
       ...card,
       name: card.name,
-      platform: card.platform || "",
+      platform: ['swiggy_instamart', 'zepto'].includes(providerId(card.platform, 'grocery'))
+        ? PROVIDERS[providerId(card.platform, 'grocery')].label : card.platform || "",
       pack_size: card.pack_size || card.quantity_description || "",
       image_url: safeImageUrl(card.image_url, card.image, card.thumbnail),
       best: Boolean(card.best),
@@ -190,14 +192,19 @@ export function cartFromEnvelope(envelope) {
     .map((item) => ({
       ...item,
       name: item.name || item.item_name,
-      quantity: Number(item.quantity ?? item.qty ?? 1),
+      quantity: Number(item.quantity ?? item.qty ?? item.count ?? 1),
       image_url: safeImageUrl(item.image_url, item.image, item.thumbnail),
     }));
   const looksLikeCart =
     envelope?.widget === "cart" || items.length > 0 || source.total != null;
   if (!looksLikeCart) return null;
+  const grocery = source.kind === 'grocery' ||
+    ['swiggy_instamart', 'zepto'].includes(providerId(source.platform)) ||
+    providerId(envelope?.vendor_widget?.server) === 'swiggy_instamart';
+  const platformId = providerId(source.platform || envelope?.vendor_widget?.server, grocery ? 'grocery' : 'food');
   return {
     ...source,
+    platform: grocery && platformId ? PROVIDERS[platformId].label : source.platform || '',
     // A grocery cart is labelled with a store, not a restaurant. show_cart
     // already copies one into the other, but a raw platform cart may carry
     // only `store`.
@@ -299,7 +306,7 @@ const basketLine = (l) => ({
   line_total: l.line_total ?? null,
   price: l.price ?? null,
   mrp: l.mrp ?? null,
-  image_url: l.image_url || "",
+  image_url: safeImageUrl(l.image_url, l.image, l.thumbnail),
   status: l.status || "unavailable",
   priority: l.priority || "essential",
 }); /* A stocked basket: what actually went into the cart, line by line.

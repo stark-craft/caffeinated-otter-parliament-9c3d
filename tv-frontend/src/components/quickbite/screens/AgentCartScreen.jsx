@@ -1,5 +1,6 @@
 import { CART_PREVIEW } from "../../../quickbite/widgetScreens.js";
 import PlatformBadge from '../PlatformBadge.jsx';
+import { agentCartDisplayTotal } from '../../../quickbite/agentCart.js';
 const rupees = (n) =>
   typeof n === "number"
     ? `₹${n.toLocaleString("en-IN")}`
@@ -13,21 +14,24 @@ export default function AgentCartScreen({
   renderHeader,
   expanded,
 }) {
-  const shown = expanded ? model.lines : model.lines.slice(0, CART_PREVIEW);
-  const hidden = model.lines.length - shown.length;
+  const lines = Array.isArray(model?.lines) ? model.lines : [];
+  const shown = expanded || model?.editable ? lines : lines.slice(0, CART_PREVIEW);
+  const hidden = lines.length - shown.length;
   return (
     <>
       {renderHeader(
-        `${model.platform} cart`,
-        model.caption,
-        `${model.lines.length} items`,
+        model?.editable ? 'Review Cart' : `${model?.platform || ''} cart`,
+        model?.caption,
+        `${lines.length} items`,
       )}
-      <PlatformBadge platform={model.platform} />
-      <ul className="qb-cart-lines">
+      <PlatformBadge platform={model?.platform} />
+      {!lines.length && <p>Your cart is empty.</p>}
+      {model?.unavailable > 0 && <p className="qb-cart-line-pack">{model.unavailable} unavailable items excluded.</p>}
+      <ul className={`qb-cart-lines ${model?.editable ? 'qb-cart-editor' : ''}`}>
         {shown.map((line, i) => (
           <li
             key={`${line.name}-${i}`}
-            className={`qb-cart-line ${line.in_stock ? "" : "is-out"}`}
+            className={`qb-cart-line ${line.in_stock ? "" : "is-out"} ${focusKey === `acart-minus-${i}` || focusKey === `acart-plus-${i}` ? 'is-focused' : ''}`}
           >
             <Media
               src={line.image_url}
@@ -36,16 +40,23 @@ export default function AgentCartScreen({
               fallback="🛒"
             />
             <span className="qb-cart-line-name">
-              <PlatformBadge platform={model.platform} compact />
+              {!model?.editable && <PlatformBadge platform={model.platform} compact />}
               {line.name}
               {line.pack_size && (
                 <em className="qb-cart-line-pack">{line.pack_size}</em>
               )}
+              {model?.editable && line.price != null && <em className="qb-cart-line-pack">{rupees(line.price)} each</em>}
               {!line.in_stock && (
                 <em className="qb-cart-line-pack">Out of stock</em>
               )}
             </span>
-            <span className="qb-cart-line-qty">×{line.quantity}</span>
+            {model?.editable ? <span className="qb-quantity-controls qb-cart-quantity">
+              <button type="button" aria-label={`Decrease ${line.name} quantity`} disabled={line.quantity <= 1}
+                className={focusKey === `acart-minus-${i}` ? 'is-focused' : ''} {...focusableProps(`acart-minus-${i}`)}>−</button>
+              <strong aria-label={`${line.name} quantity`}>{line.quantity}</strong>
+              <button type="button" aria-label={`Increase ${line.name} quantity`}
+                className={focusKey === `acart-plus-${i}` ? 'is-focused' : ''} {...focusableProps(`acart-plus-${i}`)}>+</button>
+            </span> : <span className="qb-cart-line-qty">×{line.quantity}</span>}
             <span className="qb-cart-line-amt">
               {rupees(line.price == null ? null : line.price * line.quantity)}
             </span>
@@ -61,22 +72,22 @@ export default function AgentCartScreen({
         </button>
       )}
       <div className="qb-cart-total">
-        <span>{model.totalLabel}</span>
-        <strong>{rupees(model.total)}</strong>
+        <span>{model?.dirty ? 'Estimated item subtotal' : model?.totalLabel}</span>
+        <strong>{rupees(agentCartDisplayTotal(model))}</strong>
       </div>
       <div className="qb-cart-actions">
-        <button
+        {lines.length ? <button
           className={`qb-primary-button ${focusKey === "acart-checkout" ? "is-focused" : ""}`}
           {...focusableProps("acart-checkout")}
         >
-          Checkout
-        </button>
-        <button
+          {model?.dirty ? 'Review Cart' : 'Checkout'}
+        </button> : <button className={`qb-primary-button ${focusKey === 'shop-more' ? 'is-focused' : ''}`} {...focusableProps('shop-more')}>Shop More</button>}
+        {!model?.editable && lines.length > 0 && <button
           className={`qb-secondary-button ${focusKey === "acart-edit" ? "is-focused" : ""}`}
           {...focusableProps("acart-edit")}
         >
           Edit items
-        </button>
+        </button>}
       </div>
     </>
   );

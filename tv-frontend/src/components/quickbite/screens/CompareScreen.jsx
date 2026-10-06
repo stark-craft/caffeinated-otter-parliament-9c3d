@@ -8,23 +8,24 @@ export default function CompareScreen({
   Media,
   renderHeader,
 }) {
-  const best = model.entries.find((e) => e.best);
+  const entries = Array.isArray(model?.entries) ? model.entries : [];
+  const best = entries.find((e) => e.best);
   return (
     <>
       {renderHeader(
-        model.query ? `Best price for ${model.query}` : "Compare",
-        model.caption,
+        model?.query ? `Best price for ${model.query}` : "Compare",
+        model?.caption,
       )}
-      {best && model.savings > 0 && (
+      {best && model?.savings > 0 && (
         <p className="qb-compare-saving">
           {best.platform} saves you {rupees(model.savings)}
         </p>
       )}
       <div className="qb-compare-grid">
-        {model.entries.map((e, i) => (
+        {entries.map((e, i) => (
           <div
             key={e.platform}
-            className={`qb-compare-card ${e.best ? "is-best" : ""}`}
+            className={`qb-compare-card ${e.best ? "is-best" : ""} ${focusKey === `cmp-order-${i}` ? 'is-focused' : ''}`}
           >
             {e.best && <span className="qb-compare-ribbon">Best</span>}
             <Media

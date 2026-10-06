@@ -5,12 +5,12 @@ restaurant screen: a grocery cart rendered as "Choose a Restaurant".
 Rule: an unknown kind, or a mapper that finds nothing to show, becomes the
 text screen. Nothing falls through to `restaurant`. */
 import {
-  basketStockedFromEnvelope,
-  cartFromEnvelope,
   groceryCardsFromEnvelope,
   menuFromEnvelope,
   restaurantCardsFromEnvelope,
 } from "./envelopes.js";
+import { normalizeAgentCart } from './agentCart.js';
+import { providerId, PROVIDERS } from './providers.js';
 export const NEW_SCREENS = [
   "text",
   "agent-cart",
@@ -52,6 +52,10 @@ const ORDER_ACTION_RES = [
 export function isOrderAction(label) {
   const text = String(label || "");
   return ORDER_ACTION_RES.some((re) => re.test(text));
+}
+export function isCartDestructiveAction(label) {
+  return /^(?:no[,\s]+)?cancel(?: it)?[.!]?$/i.test(String(label || '').trim()) ||
+    /^clear (?:my |the )?cart[.!]?$/i.test(String(label || '').trim());
 }
 const MENTIONED_RE = /\b(swiggy instamart|instamart|zepto|swiggy|zomato)\b/i;
 const MENTIONED_NAMES = {
@@ -97,22 +101,8 @@ function textModel(envelope) {
   };
 }
 function agentCartModel(envelope) {
-  const cart = cartFromEnvelope(envelope);
-  if (!cart || !cart.items.length) return null;
-  return {
-    platform: cart.platform || cart.restaurant || "",
-    lines: cart.items.map((i) => ({
-      name: i.name,
-      quantity: i.quantity,
-      price: i.price ?? null,
-      pack_size: i.pack_size || "",
-      image_url: i.image_url || "",
-      in_stock: i.in_stock !== false,
-    })),
-    total: cart.total ?? null,
-    totalLabel: cart.total_is_subtotal ? "Item subtotal" : "Total",
-    caption: plainCaption(envelope?.text),
-  };
+  const model = normalizeAgentCart(envelope);
+  return model ? { ...model, caption: plainCaption(envelope?.text) } : null;
 }
 
 // "1 L" == "1l", "500 ml" == "500ml": the same pack written two ways.
@@ -122,8 +112,12 @@ const packKey = (size) =>
     .replace(/\s+/g, "");
 function compareModel(envelope) {
   const p = asObject(envelope?.payload);
+  const grocery = p.kind !== 'food' && (p.kind === 'grocery' || asArray(p.cards).some(card =>
+    ['swiggy_instamart', 'zepto'].includes(providerId(card?.platform))));
   const cheapest = new Map();
-  for (const card of asArray(p.cards).map(asObject)) {
+  for (const original of asArray(p.cards).map(asObject)) {
+    const id = providerId(original.platform, grocery ? 'grocery' : 'food');
+    const card = { ...original, platform: ['swiggy_instamart', 'zepto'].includes(id) ? PROVIDERS[id].label : original.platform };
     if (!card.name || !card.platform || card.in_stock === false) continue;
     const seen = cheapest.get(card.platform);
     const price = typeof card.price === "number" ? card.price : Infinity;
@@ -132,16 +126,19 @@ function compareModel(envelope) {
   }
   const entries = [...cheapest.values()].sort((a, b) => a._price - b._price);
   if (!entries.length) return null;
-  const winnerPlatform = asObject(p.winner).platform || entries[0].platform;
+  const winner = asObject(p.winner).platform;
+  const winnerId = providerId(winner, grocery ? 'grocery' : 'food');
+  const winnerPlatform = (['swiggy_instamart', 'zepto'].includes(winnerId) ? PROVIDERS[winnerId].label : winner) || entries[0].platform;
   const priced = entries.filter((e) => e._price !== Infinity);
   return {
     query: p.query || "",
+    vertical: grocery ? 'grocery' : 'food',
     entries: entries.map(({ _price, ...e }) => ({
       platform: e.platform,
       name: e.name,
       price: e.price ?? null,
       pack_size: e.pack_size || "",
-      image_url: e.image_url || "",
+      image_url: groceryCardsFromEnvelope({ payload: { cards: [e] } })[0]?.image_url || "",
       best: e.platform === winnerPlatform,
     })),
     /* A 500 ml pack is not "₹26 cheaper" than a 1 L one: savings are claimed
@@ -216,11 +213,8 @@ const WIDGET_SCREENS = {
     },
   },
   basket_stocked: {
-    screen: "gbasket",
-    map: (env) => {
-      const b = basketStockedFromEnvelope(env);
-      return b.lines.length || b.cut.length ? b : null;
-    },
+    screen: "agent-cart",
+    map: agentCartModel,
   },
   cart: { screen: "agent-cart", map: agentCartModel },
   comparison: { screen: "compare", map: compareModel },
@@ -274,6 +268,8 @@ export function focusKeysFor(screen, model, { expanded = false } = {}) {
     ];
   }
   if (screen === "agent-cart") {
+    if (!asArray(m.lines).length) return ['shop-more'];
+    if (m.editable) return [...asArray(m.lines).flatMap((_, i) => [`acart-minus-${i}`, `acart-plus-${i}`]), 'acart-checkout'];
     const more = !expanded && asArray(m.lines).length > CART_PREVIEW;
     return ["acart-checkout", "acart-edit", ...(more ? ["acart-more"] : [])];
   }
@@ -286,6 +282,7 @@ export function focusKeysFor(screen, model, { expanded = false } = {}) {
   return [];
 }
 export function defaultFocusFor(screen, model) {
+  if (screen === 'agent-cart' && model?.editable && model.lines?.length) return 'acart-plus-0';
   if (screen === "basket-compare") {
     const best = asArray(model?.platforms).findIndex((p) => p.best);
     if (best >= 0) return `bcmp-fill-${best}`;

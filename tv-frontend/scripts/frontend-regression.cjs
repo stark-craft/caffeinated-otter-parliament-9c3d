@@ -82,7 +82,7 @@ async function sequences(browser) {
         const count = f.state.requests.length;
         await f.speak(id === 'sushi' ? 'Order sushi' : WORDS[expected]);
         assert.equal(f.state.requests.length, count + 1);
-        const screen = basket ? 'gbasket' : ['zepto','swiggy_instamart'].includes(expected) ? 'gresults' : 'restaurant';
+        const screen = basket ? 'agent-cart' : ['zepto','swiggy_instamart'].includes(expected) ? 'gresults' : 'restaurant';
         await f.waitScreen(screen);
         const request = f.state.requests.at(-1);
         const vertical = ['zepto','swiggy_instamart'].includes(expected) ? 'grocery' : 'food';
@@ -299,6 +299,183 @@ async function payment(browser, platform) {
   } finally { await f.finish(); }
 }
 
+function groceryCart(platform, riceQuantity = 2) {
+  return { widget: 'cart', payload: { kind: 'grocery', platform, total: 40 + 30 * riceQuantity,
+    items: [{ name: 'Napa Cabbage', qty: 2, unit_price: 20, pack_size: '1 kg' }, { name: 'Rice', qty: riceQuantity, unit_price: 30, pack_size: '1 kg' }] },
+    actions: ['Yes, place the order', 'No, cancel'] };
+}
+
+async function editableCarts(browser) {
+  for (const variant of ['Zepto stocked', 'Swiggy stocked', 'Swiggy grocery cart']) {
+    const platform = variant.startsWith('Zepto') ? 'Zepto' : 'Swiggy';
+    const label = platform === 'Zepto' ? 'Zepto' : 'Swiggy Instamart';
+    let mutations = 0, cancellations = 0, orders = 0, riceQuantity = 2;
+    let release;
+    const hold = new Promise(resolve => { release = resolve; });
+    const f = await fixture(browser, async request => {
+      if (request.message.startsWith('Update quantities')) {
+        mutations++;
+        assert.match(request.message, /Set "Rice \(1 kg\)" to exactly 3/);
+        assert.doesNotMatch(request.message, /Napa Cabbage/);
+        assert.match(request.message, new RegExp(`existing ${label} cart`));
+        assert.match(request.message, /Do not add duplicate items, change other items, place an order, or pay/);
+        await hold;
+        riceQuantity = 3;
+        return groceryCart(platform, riceQuantity);
+      }
+      if (request.message === 'No, cancel') {
+        cancellations++;
+        return { widget: 'cart', payload: { kind: 'grocery', platform, total: 0, items: [] } };
+      }
+      if (request.message === 'Yes, place the order') { orders++; throw new Error('Editor must not place an order'); }
+      if (request.message.startsWith('Show my current')) return groceryCart(platform, riceQuantity);
+      if (variant.endsWith('cart')) return groceryCart(platform);
+      return { widget: 'basket_stocked', payload: { platform, total: 100, label: 'Ingredients', lines: [
+        { name: 'Napa Cabbage', count: 2, line_total: 40, requested: '1 kg', image: 'https://images.example.test/cabbage.png', status: 'stocked' },
+        { name: 'Rice', count: 2, price: 30, requested: '1 kg', status: 'stocked' },
+        { name: 'Unavailable', count: 2, status: 'unavailable' }, { name: 'Zero', count: 0 }], cut: [{ query: 'Eggs', status: 'unavailable' }] } };
+    });
+    await f.page.route('https://images.example.test/**', route => route.fulfill({ contentType: 'image/png', body: Buffer.from(pixel.split(',')[1], 'base64') }));
+    const focus = key => f.page.locator(`${panelSelector} [data-qb-focus="${key}"].is-focused`).waitFor();
+    try {
+      await f.speak(platform === 'Zepto' ? WORDS.zepto : WORDS.swiggy_instamart);
+      await f.waitScreen('agent-cart');
+      await f.page.getByRole('heading', { name: 'Review Cart', exact: true }).waitFor();
+      assert.equal(await f.page.locator('.qb-cart-editor .qb-cart-line').count(), 2);
+      await f.page.locator(`${panelSelector} .qb-platform-badge`).filter({ hasText: label }).first().waitFor();
+      await focus('acart-plus-0');
+      await f.page.keyboard.press('ArrowDown'); await focus('acart-plus-1');
+      await f.page.keyboard.press('ArrowLeft'); await focus('acart-minus-1');
+      await f.page.keyboard.press('ArrowRight'); await focus('acart-plus-1');
+      await f.page.keyboard.press('ArrowDown'); await focus('acart-checkout');
+      await f.page.keyboard.press('ArrowUp'); await focus('acart-plus-1');
+      await f.page.keyboard.press('Enter');
+      await f.page.locator('[aria-label="Rice quantity"]').filter({ hasText: /^3$/ }).waitFor();
+      assert.equal(await f.page.locator('[aria-label="Napa Cabbage quantity"]').innerText(), '2');
+      assert.equal(mutations, 0, 'row edits are local drafts');
+      const imageSize = await f.page.locator('.qb-cart-line-img').first().evaluate(element => ({ width: element.getBoundingClientRect().width, height: element.getBoundingClientRect().height }));
+      assert.ok(imageSize.width >= 56 && imageSize.width <= 62 && imageSize.height <= 62);
+      if (variant === 'Zepto stocked') await f.page.screenshot({ path: '/tmp/quickbite-editable-cart.png' });
+      await f.page.locator(`${panelSelector} [data-qb-focus="acart-checkout"]`).evaluate(button => { button.click(); button.click(); });
+      await f.waitScreen('cart');
+      await f.page.getByText('Preparing your cart', { exact: true }).waitFor();
+      assert.equal(mutations, 1);
+      release();
+      await f.page.locator(`${panelSelector} [data-qb-focus="checkout-action-0"]`).waitFor();
+      assert.equal(orders, 0);
+      await f.page.keyboard.press('Escape'); await f.waitScreen('agent-cart');
+      await f.page.locator('[aria-label="Rice quantity"]').filter({ hasText: /^3$/ }).waitFor();
+      await f.click('acart-checkout'); await f.waitScreen('cart');
+      assert.equal(mutations, 1, 'Back and an unchanged cart must not repeat quantity mutation');
+      await f.click('checkout-action-1');
+      await f.page.getByRole('alertdialog', { name: 'Clear or cancel this cart?' }).waitFor();
+      assert.equal(cancellations, 0);
+      await f.page.getByRole('button', { name: 'Keep cart', exact: true }).click();
+      assert.equal(cancellations, 0);
+      await f.click('checkout-action-1');
+      await f.page.getByRole('button', { name: 'Confirm', exact: true }).evaluate(button => { button.click(); button.click(); });
+      await f.waitScreen('agent-cart');
+      await f.page.getByText('Your cart is empty.', { exact: true }).waitFor();
+      assert.equal(cancellations, 1);
+      assert.equal(orders, 0);
+      console.log(`PASS ${variant}: compact editor, targeted quantity, TV arrows, immediate cart, Back, exact confirmed cancel; no order.`);
+    } finally { release(); await f.finish(); }
+  }
+}
+
+async function comparisonBack(browser) {
+  let cartReads = 0;
+  const f = await fixture(browser, request => {
+    if (/^order /i.test(request.message) || request.message.startsWith('Show my current')) { cartReads++; return groceryCart(/Instamart/.test(request.message) ? 'Swiggy Instamart' : 'Zepto'); }
+    return { widget: 'comparison', payload: { kind: 'grocery', query: 'milk', cards: [
+      { name: 'Milk', platform: 'Zepto', price: 54, pack_size: '1 L' },
+      { name: 'Milk', platform: 'Swiggy', price: 56, pack_size: '1 L' }] } };
+  });
+  try {
+    await f.speak('Compare milk from Instamart and Zepto'); await f.waitScreen('compare');
+    assert.equal(await f.page.locator('.qb-compare-card.is-focused').count(), 1);
+    await f.page.keyboard.press('ArrowDown');
+    await f.page.locator('.qb-compare-card.is-focused [data-qb-focus="cmp-order-1"]').waitFor();
+    const rects = await f.page.locator('.qb-compare-card').evaluateAll(cards => cards.map(card => { const rect = card.getBoundingClientRect(); return {x:rect.x,y:rect.y}; }));
+    assert.equal(rects[0].x, rects[1].x); assert.ok(rects[1].y > rects[0].y);
+    const focusedStyle = await f.page.locator('.qb-compare-card.is-focused').evaluate(card => getComputedStyle(card).boxShadow);
+    assert.notEqual(focusedStyle, 'none');
+    await f.page.waitForTimeout(350); // Let the existing panel/scroll animations settle for visual review.
+    await f.page.screenshot({ path: '/tmp/quickbite-compare-focus.png' });
+    await f.click('cmp-order-1'); await f.waitScreen('agent-cart');
+    await f.click('acart-checkout'); await f.waitScreen('cart');
+    await f.page.keyboard.press('Escape'); await f.waitScreen('agent-cart');
+    await f.page.keyboard.press('Escape'); await f.waitScreen('compare');
+    assert.equal(await f.page.locator('.qb-compare-card').count(), 2);
+    await f.page.getByRole('heading', { name: 'Best price for milk', exact: true }).waitFor();
+    await f.page.getByRole('button', { name: 'Order on Swiggy Instamart', exact: true }).waitFor();
+    assert.equal(cartReads, 2);
+    // Independently exercise the renderer with stale cart-shaped data. The
+    // integration path above must restore the real comparison, not this shape.
+    await f.page.evaluate(async () => {
+      const loaded = performance.getEntriesByType('resource').map(entry => entry.name);
+      const reactUrl = loaded.find(url => url.includes('/deps/react.js?'));
+      const domUrl = loaded.find(url => url.includes('/deps/react-dom_client.js?'));
+      const [{ default: Compare }, { default: React }, dom] = await Promise.all([
+        import('/src/components/quickbite/screens/CompareScreen.jsx'), import(reactUrl), import(domUrl)]);
+      const createRoot = dom.createRoot || dom.default.createRoot;
+      const node = document.createElement('div'); document.body.append(node);
+      const root = createRoot(node);
+      root.render(React.createElement(Compare, { model: { lines: [] }, focusableProps: () => ({}), Media: () => null,
+        renderHeader: title => React.createElement('h2', {}, title) }));
+      await new Promise(resolve => setTimeout(resolve, 50));
+      if (!node.textContent.includes('Compare')) throw new Error('Defensive comparison did not render');
+      root.unmount(); node.remove();
+    });
+    console.log('PASS vertical comparison outer focus, provider/cart/Back model restoration and defensive stale shape.');
+  } finally { await f.finish(); }
+}
+
+async function widgetRace(browser) {
+  let release;
+  const hold = new Promise(resolve => { release = resolve; });
+  const f = await fixture(browser, async request => {
+    if (/^order /i.test(request.message) && !/Zomato/.test(request.message)) { await hold; return groceryCart('Zepto'); }
+    if (/Zomato/.test(request.message)) return result('zomato');
+    return { widget: 'comparison', payload: { kind: 'grocery', query: 'milk', cards: [{ name: 'Milk', platform: 'Zepto', price: 54 }] } };
+  });
+  try {
+    await f.speak('Compare milk from Zepto'); await f.waitScreen('compare');
+    await f.click('cmp-order-0');
+    await f.page.getByText('Asking QuickBite…', { exact: true }).waitFor();
+    await f.speak(WORDS.zomato); await f.waitScreen('restaurant');
+    const oldResponse = f.page.waitForResponse(response => new URL(response.url()).pathname === '/api/chat');
+    release(); await oldResponse;
+    await f.page.waitForTimeout(100);
+    await f.waitScreen('restaurant');
+    await f.page.locator(`${panelSelector} .qb-platform-badge`).filter({ hasText: 'Zomato' }).first().waitFor();
+    console.log('PASS new provider search while an older widget cart request is in flight.');
+  } finally { release(); await f.finish(); }
+}
+
+async function destructiveTextActions(browser) {
+  for (const label of ['No, cancel', 'No, cancel it', 'clear cart']) {
+    let clears = 0;
+    const f = await fixture(browser, request => {
+      if (request.message === label) { clears++; return { widget: 'cart', payload: { platform: 'Zepto', items: [], total: 0 } }; }
+      return { widget: 'text', payload: { title: 'Review your Zepto cart' }, actions: [label] };
+    });
+    try {
+      await f.speak('Find ingredients from Zepto'); await f.waitScreen('text');
+      await f.click('text-action-0');
+      await f.page.getByRole('alertdialog', { name: 'Clear or cancel this cart?' }).waitFor();
+      assert.equal(clears, 0);
+      await f.page.getByRole('button', { name: 'Keep cart', exact: true }).click();
+      await f.click('text-action-0');
+      await f.page.getByRole('button', { name: 'Confirm', exact: true }).evaluate(button => { button.click(); button.click(); });
+      await f.waitScreen('agent-cart');
+      assert.equal(clears, 1);
+      assert.equal(f.state.requests.at(-1).message, label);
+    } finally { await f.finish(); }
+  }
+  console.log('PASS cancel/clear text labels require confirmation and preserve exact backend action strings.');
+}
+
 (async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium', headless: true,
     args: ['--no-sandbox','--disable-dev-shm-usage'], env: { ...process.env, XDG_CACHE_HOME: '/tmp/commagent-chromium-cache', XDG_CONFIG_HOME: '/tmp/commagent-chromium-config' } });
@@ -309,6 +486,10 @@ async function payment(browser, platform) {
     await responseRace(browser);
     await responseRace(browser, true);
     await continuations(browser);
+    await editableCarts(browser);
+    await comparisonBack(browser);
+    await widgetRace(browser);
+    await destructiveTextActions(browser);
     for (const platform of ['Zomato','Swiggy','Swiggy Instamart','Zepto']) await payment(browser, platform);
     fs.writeFileSync('/tmp/quickbite-provider-evidence.json', JSON.stringify(evidence, null, 2));
     console.log('PASS all browser regressions. Sanitized scenario traces: /tmp/quickbite-provider-evidence.json');
