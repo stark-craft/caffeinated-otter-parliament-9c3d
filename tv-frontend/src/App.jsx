@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { createQrSession, createSession, getMerchantStatus, getQrSessionStatus, sendChat } from './api.js'
-import VideoPlayer from './components/VideoPlayer.jsx'
+import VideoPlayer from './universalGuide/UniversalGuidePlayer.jsx'
+import { useProductShortcut } from './universalGuide/useProductShortcut.js'
 import CommerceSidebar from './components/CommerceSidebar.jsx'
 import QrLoginPanel from './components/quickbite/QrLoginPanel.jsx'
 import VoiceOverlay from './components/VoiceOverlay.jsx'
@@ -299,6 +300,11 @@ const routed = { ...request, nonce: requestSeq.current }
 if (routed.voiceTraceId) voiceLog(routed.voiceTraceId, 'App → QuickBite panel request', routed)
 setExternalRequest(routed)
 }
+const selectHomeProduct = useProductShortcut({
+groceryUnlocked, paneOpen, pairingActive: qrTarget === 'grocery',
+onNavigate: issueRequest, onRequestLogin: requestQrLogin,
+onOpen: () => setPaneOpen(true),
+})
 /* Quick actions predate the intent router and still emit the four legacy
 request types. Adapting them here means the panel has exactly one input
 shape, and nothing in quickActions.js has to change. */
@@ -511,6 +517,7 @@ return (
 <div className={`app-shell ${isFullscreen ? 'is-fullscreen' : ''}`}>
 <main className="app-main" onMouseEnter={() => setPeekSidebar(true)} onMouseLeave={() => setPeekSidebar(false)} data-peek={peekSidebar || undefined}>
 <VideoPlayer
+onProductSelect={selectHomeProduct}
 paneOpen={paneOpen}
 onOpenShop={() => setPaneOpen(true)}
 onCloseShop={() => setPaneOpen(false)}
