@@ -15,8 +15,8 @@ function apiUrl(path) {
    *
    * TV / production:
    *
-   *   VITE_API_BASE_URL=http://192.168.x.x:8077
-   *   -> http://192.168.x.x:8077/api/session
+   *   VITE_API_BASE_URL=http://54.179.70.175
+   *   -> http://54.179.70.175/api/session
    */
   return `${BACKEND_ORIGIN}/api${path}`
 }

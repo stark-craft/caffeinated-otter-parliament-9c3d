@@ -4,14 +4,15 @@ import { GROCERY_PRODUCTS } from '../quickbite/groceryCatalog.js'
 export const HERO_SLIDES = [
   { id: 'himym', title: 'How I Met Your Mother', eyebrow: 'All seasons',
     description: 'Your favourites, together in one place.', label: 'Now streaming',
-    image: 'https://image.tmdb.org/t/p/original/xZFbIlSl93YbdOLuKBfaSAihck4.jpg',
-    fallback: './universal-guide/entertainment.svg', theme: 'entertainment' },
+    image: './universal-guide/images/hero-entertainment.jpg',
+    fallback: 'https://image.tmdb.org/t/p/original/xZFbIlSl93YbdOLuKBfaSAihck4.jpg',
+    placeholder: './universal-guide/entertainment.svg', theme: 'entertainment' },
   { id: 'milk', title: 'Fresh milk. Every day.', eyebrow: 'Quick Shop · Grocery',
     description: 'A little everyday essential, just a few clicks away.', label: 'Explore milk',
-    image: './universal-guide/milk.svg', theme: 'milk' },
+    image: './universal-guide/images/hero-milk.jpg', fallback: './universal-guide/milk.svg', theme: 'milk' },
   { id: 'chips', title: 'Make it a Lay’s night.', eyebrow: 'Quick Shop · Grocery',
     description: 'Settle in with something crunchy.', label: 'Explore chips',
-    image: './universal-guide/chips.svg', theme: 'chips' },
+    image: './universal-guide/images/hero-chips.jpg', fallback: './universal-guide/chips.svg', theme: 'chips' },
 ]
 
 export function groceryLandingRequest(productId) {

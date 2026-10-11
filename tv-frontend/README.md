@@ -11,7 +11,7 @@ address the phone can reach. Both devices must be able to reach that URL.
 
 `npm run build` produces one `dist/` with `index.html` for TV and
 `mobile/index.html` for phone setup. The configured backend remains
-`http://107.109.219.138:8077`. The production QR target is set by
+`http://54.179.70.175`. The production QR target is set by
 `VITE_MOBILE_APP_URL` in `.env.production`; that URL must serve this same
 build's `/mobile/` page. A WGT packaged on the TV does not itself serve files
 to a phone, so the mobile page still needs a network-reachable static host.
