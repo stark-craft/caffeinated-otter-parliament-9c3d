@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { groceryCardsFromEnvelope } from './envelopes.js'
-import { GROCERY_SHORTCUTS, groceryShortcutRequest, groceryShortcutPrompt, firstMatchingGroceryOffer } from './groceryShortcut.js'
+import { GROCERY_SHORTCUTS, groceryShortcutRequest, groceryShortcutPrompt, firstMatchingGroceryOffer, isRepeatedResultSummary } from './groceryShortcut.js'
 
 const milk = { name: 'Amul Taaza Toned Milk', brand: 'Amul', pack_size: '1 L', price: 74, platform: 'Zepto', in_stock: true }
 const cola = { name: 'Coca-Cola Original Taste', pack_size: '1 L', price: 60, platform: 'Swiggy Instamart', in_stock: true }
@@ -62,4 +62,18 @@ test('promotions issue search requests only for milk and cola; entertainment rem
     // Avoid triggering the existing cart-filling prompt heuristic.
     assert.doesNotMatch(groceryShortcutPrompt(product), /\badd\b|\bcart\b|\brecipe\b|\bingredients?\b|\beverything\b/iu)
   }
+})
+
+
+test('Repeated summary is not stock and a fresh request has a distinct identity', () => {
+  assert.equal(isRepeatedResultSummary({ widget: 'text', text: 'Same fresh results — no changes:' }), true)
+  assert.equal(isRepeatedResultSummary({ widget: 'text', payload: { title: 'Same results, unchanged' } }), true)
+  assert.equal(isRepeatedResultSummary({ widget: 'text', text: 'Zepto is disconnected' }), false)
+  assert.equal(isRepeatedResultSummary({ widget: 'carousel', text: 'Same results' }), false)
+  const first = groceryShortcutPrompt(GROCERY_SHORTCUTS.milk, 101)
+  const second = groceryShortcutPrompt(GROCERY_SHORTCUTS.milk, 102)
+  assert.notEqual(first, second)
+  assert.match(second, /independent grocery discovery/)
+  assert.match(groceryShortcutPrompt(GROCERY_SHORTCUTS.milk, 102, true), /recheck/)
+  assert.doesNotMatch(first, /\badd\b|\bcart\b|\brecipe\b|\bingredients?\b|\beverything\b/iu)
 })
