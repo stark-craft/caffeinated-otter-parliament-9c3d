@@ -269,3 +269,11 @@
 .qb-secondary-button:not(.is-focused):not(:disabled) {
   color: var(--qb-text-primary);
 }
+
+/* Read-only basket cards are actual TV-focus stops; the heading is reachable
+   above item one, and only the current card gets the orange ring. */
+.qb-basket-card[data-qb-focus] { border: 2px solid transparent; outline: none; }
+.qb-basket-card[data-qb-focus].is-focused {
+  border-color: var(--qb-orange-bright);
+  box-shadow: 0 0 0 3px rgba(255,122,0,.17), 0 0 22px rgba(255,122,0,.23);
+}
