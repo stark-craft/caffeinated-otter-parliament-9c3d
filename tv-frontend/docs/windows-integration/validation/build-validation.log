@@ -1,0 +1,14 @@
+vite v6.4.3 building for production...
+<script src="$WEBAPIS/webapis/webapis.js"> in "/index.html" can't be bundled without type="module" attribute
+transforming...
+✓ 179 modules transformed.
+rendering chunks...
+computing gzip size...
+../../../tmp/windows-quickbite-panel/build-fixture/mobile/index.html                    0.91 kB │ gzip:  0.52 kB
+../../../tmp/windows-quickbite-panel/build-fixture/index.html                           1.09 kB │ gzip:  0.55 kB
+../../../tmp/windows-quickbite-panel/build-fixture/assets/mobile-DLd49Ulm.css           7.71 kB │ gzip:  2.13 kB
+../../../tmp/windows-quickbite-panel/build-fixture/assets/tv-Bg9m5RWb.css              91.22 kB │ gzip: 17.57 kB
+../../../tmp/windows-quickbite-panel/build-fixture/assets/mobile-C1H8YLAj.js           75.82 kB │ gzip: 27.89 kB
+../../../tmp/windows-quickbite-panel/build-fixture/assets/apiDiagnostics-X1TJX5gy.js  230.52 kB │ gzip: 72.06 kB
+../../../tmp/windows-quickbite-panel/build-fixture/assets/tv-DPQAN-ds.js              308.10 kB │ gzip: 83.06 kB
+✓ built in 1.80s

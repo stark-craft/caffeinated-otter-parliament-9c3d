@@ -1,0 +1,27 @@
+{
+  "originalNamedFunctions": 62,
+  "retainedNamedFunctions": 62,
+  "unchangedNamedFunctions": 53,
+  "changedForBannerIntegration": [
+    "QuickBitePanel",
+    "activate",
+    "goBack",
+    "renderGroceryReview",
+    "retry",
+    "selectDish",
+    "selectProduct",
+    "selectRestaurant",
+    "shopMore"
+  ],
+  "newNamedFunctions": [
+    "groceryShortcutRequest",
+    "groceryShortcutPrompt",
+    "words",
+    "oneLitre",
+    "firstMatchingGroceryOffer",
+    "bannerGroceryProvider",
+    "selectBannerProduct"
+  ],
+  "importsUnchanged": true,
+  "checkoutCartDraftPaymentTrackingHandlersUnchanged": true
+}

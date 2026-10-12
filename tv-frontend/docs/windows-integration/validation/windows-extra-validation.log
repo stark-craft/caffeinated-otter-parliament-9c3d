@@ -1,0 +1,3 @@
+PASS pre-banner ordinary product search cannot overwrite the new Coca-Cola quantity page
+PASS Windows draft quantities/removals stay local and commit once with read-only fallback
+PASS existing uncertain draft-commit retry reads the provider cart without replaying mutation

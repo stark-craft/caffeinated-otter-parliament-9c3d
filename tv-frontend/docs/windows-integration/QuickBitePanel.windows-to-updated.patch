@@ -1,0 +1,323 @@
+--- a/tv-frontend/src/components/quickbite/QuickBitePanel.jsx
++++ b/tv-frontend/src/components/quickbite/QuickBitePanel.jsx
+@@ -50,6 +50,63 @@
+ import { HOME_BACKDROP, MODE_TILES } from '../../quickbite/heroArt.js'
+ import { confirmedCodCheckout, orderPlatform, paymentMethodFromEnvelope, paymentPresentation } from '../../quickbite/payMode.js'
+ import { voiceError, voiceLog, voiceWarn } from '../../quickbite/voiceDiagnostics.js'
++// Direct TV banner products: self-contained for this Windows panel.
++
++// Fixed banner products. Matching never substitutes another brand, size or drink.
++const GROCERY_SHORTCUTS = {
++  milk: { id: 'milk', name: 'Amul Milk 1 L' },
++  cola: { id: 'cola', name: 'Coca-Cola 1 L' },
++}
++
++function groceryShortcutRequest(productId) {
++  return ['milk', 'cola'].includes(productId)
++    ? { type: 'grocery-shortcut', productId } : null
++}
++
++function groceryShortcutPrompt(product) {
++  return `Find ${product.name} near me. Return in-stock matching product offers with their brand, pack size, price and grocery store for quantity review. This request is search only.`
++}
++
++function words(value) {
++  return String(value || '').normalize('NFKC').toLowerCase()
++    .replace(/[’']/g, '').replace(/[^a-z0-9.]+/g, ' ').trim()
++}
++
++function oneLitre(card) {
++  const pack = String(card.pack_size || card.quantity_description || card.name || '')
++    .normalize('NFKC').toLowerCase().replace(/[×*]/g, 'x')
++  // A 2 x 500 ml bundle is not the requested single 1 L pack.
++  const counts = [...pack.matchAll(/(?:\b(\d+)\s*x|x\s*(\d+)\b|\b(?:pack|case|set)\s*(?:of\s*)?(\d+)\b)/gu)]
++  if (counts.some(match => Number(match[1] || match[2] || match[3]) !== 1)) return false
++  const sizes = [...pack.matchAll(/\b(\d+(?:\.\d+)?)\s*(ml|litres?|liters?|ltrs?|l)\b/gu)]
++  return sizes.length === 1 && Number(sizes[0][1]) * (sizes[0][2] === 'ml' ? 1 : 1000) === 1000
++}
++
++function firstMatchingGroceryOffer(cards, productId) {
++  if (!groceryShortcutRequest(productId) || !Array.isArray(cards)) return null
++  // Preserve response order: a later cheaper/best-marked offer does not win.
++  return cards.find(card => {
++    if (card.in_stock !== true || !['number', 'string'].includes(typeof card.price) || !String(card.price).trim() ||
++      !Number.isFinite(Number(card.price)) || Number(card.price) < 0 ||
++      !['zepto', 'swiggy_instamart'].includes(bannerGroceryProvider(card.platform)) || !oneLitre(card)) return false
++    const name = words(card.name)
++    const text = words(`${card.brand || ''} ${card.name || ''}`)
++    if (productId === 'milk') return /\bamul\b/u.test(text) && /\bmilk\b/u.test(name) &&
++      !/\b(?:powder|shake|milkshake|flavou?red|chocolate)\b/u.test(name)
++    return /\b(?:coca cola|cocacola)\b/u.test(text) && /\b(?:cola|cocacola)\b/u.test(name) &&
++      !/\b(?:zero|diet|light|sugar free)\b/u.test(text)
++  }) || null
++}
++
++function bannerGroceryProvider(value) {
++  const name = String(value || '').trim().toLowerCase().replace(/[_-]+/g, ' ')
++  if (/^zomato(?:\s|$)/u.test(name)) return null
++  if (/^zepto(?:\s|$)/u.test(name)) return 'zepto'
++  if (/instamart/u.test(name)) return 'swiggy_instamart'
++  if (/^swiggy(?:\s|$)/u.test(name) && !/\bfood\b/u.test(name)) return 'swiggy_instamart'
++  return null
++}
++
+ const ORDER_SCREENS = new Set([
+   'pay', 'payment-received', 'preparing', 'on-the-way', 'delivered', 'cancelled',
+ ])
+@@ -159,6 +216,12 @@
+     const lastVoiceTraceRef = useRef(null)
+     const compareModelRef = useRef(null)
+     const checkoutInFlightRef = useRef(false)
++    // These refs own only banner discovery; cart/payment handlers stay existing.
++    const bannerSearchRef = useRef(null)
++    const handledBannerNonceRef = useRef(null)
++    const bannerEpochRef = useRef(0)
++    const bannerOpenRef = useRef(open)
++    bannerOpenRef.current = open
+     const [screen, setScreenState] = useState('home')
+     const screenRef = useRef('home')
+     const screenHistoryRef = useRef([])
+@@ -271,7 +334,11 @@
+       // A remote with no focusable key is a dead end: this is the one
+       // key that leaves a stocked basket.
+       if (screen === 'gbasket') return ['gbasket-cart']
+-      if (screen === 'greview') return [...(quantity > 1 ? ['gqty-minus'] : []), 'gqty-plus', 'add-gcart', 'shop-more']
++      if (screen === 'greview') {
++        if (selectedProduct?.shortcut && loadingPhase === 'products') return []
++        if (selectedProduct?.shortcut && flowError?.kind === 'products') return ['retry']
++        return [...(quantity > 1 ? ['gqty-minus'] : []), 'gqty-plus', 'add-gcart', 'shop-more']
++      }
+       if (screen === 'category') return QUICKBITE_CATEGORIES.map((_, index) => `category-${index}`)
+       if (screen === 'dish') return ['dish-card', 'select-dish']
+       if (screen === 'restaurant') {
+@@ -301,10 +368,11 @@
+       if (screen === 'preparing' || screen === 'on-the-way') return ['refresh-tracking', 'shop-more']
+       if (screen === 'delivered' || screen === 'cancelled') return ['shop-more']
+       return []
+-    }, [screen, loadingPhase, flowError, restaurants, groceryResults, selectedItem, checkoutActions, quantity, menu, widgetModel, cartExpanded, checkoutWithoutTracking, cart, cartCancelledMessage])
++    }, [screen, loadingPhase, flowError, restaurants, groceryResults, selectedItem, checkoutActions, quantity, menu, widgetModel, cartExpanded, checkoutWithoutTracking, cart, cartCancelledMessage, selectedProduct?.shortcut])
+     useImperativeHandle(ref, () => ({ handleKey: (key) => handleKeyRef.current?.(key) }), [])
+     useEffect(() => {
+       if (open) return
++      bannerSearchRef.current = null
+       screenHistoryRef.current = []
+       setJumpOrigin(null)
+       setConfirmStrip(null)
+@@ -382,6 +450,16 @@
+        a notice; the charge waits for a focused press on a checkout action. */
+     useEffect(() => {
+       if (!externalRequest?.nonce) return
++      if (bannerSearchRef.current && bannerSearchRef.current.nonce !== externalRequest.nonce) {
++        bannerSearchRef.current = null
++        setLoadingPhase('')
++      }
++      if (externalRequest.type === 'grocery-shortcut') {
++        if (handledBannerNonceRef.current === externalRequest.nonce) return
++        handledBannerNonceRef.current = externalRequest.nonce
++        if (groceryShortcutRequest(externalRequest.productId)) selectBannerProduct(externalRequest.productId)
++        return
++      }
+       const traceId = externalRequest.voiceTraceId
+       if (traceId) {
+         lastVoiceTraceRef.current = traceId
+@@ -597,6 +675,7 @@
+       // A question on screen is answered or dismissed before anything moves.
+       if (confirmStrip) { setConfirmStrip(null); setStripIndex(0); return }
+       if (screen === 'home') { onClose(); return }
++      bannerSearchRef.current = null
+       setFlowError(null)
+       setLoadingPhase('')
+       retireAwaitingConfirm()
+@@ -731,6 +810,7 @@
+       // swallow everything else
+     }
+     function shopMore() {
++      bannerSearchRef.current = null
+       const preferredFocus = vertical === 'grocery' ? 'mode-grocery' : 'mode-food'
+       /* New shopping journey. Do NOT carry navigation history from the previous checkout flow. */
+       screenHistoryRef.current = []
+@@ -753,8 +833,71 @@
+          Shop More means continue shopping, not empty the cart. */
+       return setScreenAndFocus('mode', preferredFocus, { replace: true })
+     }
++    // Banner-only path. The normal catalogue search and all cart handlers below
++    // remain the Windows implementation. This method searches, never mutates.
++    async function selectBannerProduct(productId) {
++      if (!groceryShortcutRequest(productId)) return
++      const product = GROCERY_SHORTCUTS[productId]
++      const guard = routeIntent({ name: 'search', confidence: 0.99,
++        slots: { query: product.name, vertical: 'grocery' }, alternatives: [] }, currentView())
++      if (guard.strip) { setConfirmStrip(guard.strip); setStripIndex(0); return }
++      if (!merchantAccess?.grocery) { onRequestLogin?.('grocery'); return }
++      if (bannerSearchRef.current?.productId === productId) return
++      const request = { productId, nonce: externalRequest?.nonce }
++      bannerSearchRef.current = request
++      bannerEpochRef.current += 1
++      setConfirmStrip(null)
++      setNotice('')
++      setVertical('grocery')
++      setGroceryCategory(null)
++      setSelectedProduct({ ...product, shortcut: productId })
++      setGroceryResults([])
++      setSelectedGroceryCard(null)
++      setQuantity(1)
++      setFlowError(null)
++      setLoadingPhase('products')
++      setScreenAndFocus('greview', 'back')
++      try {
++        // The second argument is optional: older Windows sendSilent wrappers
++        // can ignore it. The prompt itself explicitly requests grocery search.
++        const envelope = await sendSilent(groceryShortcutPrompt(product), { searchVertical: 'grocery' })
++        if (bannerSearchRef.current !== request || !bannerOpenRef.current) return
++        const cards = groceryCardsFromEnvelope(envelope)
++        const card = firstMatchingGroceryOffer(cards, productId)
++        if (!card) {
++          setFlowError({ kind: 'products', message: cards.length
++            ? `No in-stock ${product.name} with a confirmed price and store was returned. Retry to check availability.`
++            : envelope?.text || `No in-stock ${product.name} was returned. Retry to check availability.` })
++          setFocusKey('retry')
++          return
++        }
++        // Keep only the chosen offer in the view's reference list.
++        setGroceryResults([card])
++        setSelectedGroceryCard(card)
++        setQuantity(1)
++        setFocusKey('gqty-plus')
++      } catch (error) {
++        if (bannerSearchRef.current !== request || !bannerOpenRef.current) return
++        setFlowError({ kind: 'products', message: error.message || 'Could not find this product. Retry to check availability.' })
++        setFocusKey('retry')
++      } finally {
++        if (bannerSearchRef.current === request) {
++          bannerSearchRef.current = null
++          setLoadingPhase('')
++        }
++      }
++    }
++    // Native focus is added only to banner quantity/retry, leaving the working
++    // Windows focus behavior on all other screens intact.
++    useEffect(() => {
++      if (!open || screen !== 'greview' || !selectedProduct?.shortcut || confirmStrip) return
++      panelRef.current?.querySelector(`[data-qb-focus="${focusKey}"]`)?.focus({ preventScroll: true })
++    }, [open, screen, selectedProduct?.shortcut, focusKey, loadingPhase, confirmStrip])
++
+     async function selectDish(dish = currentDish) {
+       if (!dish) return
++      bannerSearchRef.current = null
++      const bannerEpochAtStart = bannerEpochRef.current
+       setSelectedDish(dish)
+       setRestaurants([])
+       setFlowError(null)
+@@ -762,17 +905,21 @@
+       setScreenAndFocus('restaurant', 'back')
+       try {
+         const envelope = await sendSilent(dishSearchPrompt(dish))
++        if (bannerEpochAtStart !== bannerEpochRef.current) return
+         const cards = restaurantCardsFromEnvelope(envelope)
+         setRestaurants(cards)
+         setFlowError(cards.length ? null : { kind: 'restaurants', message: envelope?.text || 'No restaurants were returned.' })
+         setFocusKey(cards.length ? 'restaurant-0' : 'retry')
+       } catch (error) {
++        if (bannerEpochAtStart !== bannerEpochRef.current) return
+         setFlowError({ kind: 'restaurants', message: error.message })
+         setFocusKey('retry')
+-      } finally { setLoadingPhase('') }
++      } finally { if (bannerEpochAtStart === bannerEpochRef.current) setLoadingPhase('') }
+     }
+     async function selectProduct(product = currentProduct) {
+       if (!product) return
++      bannerSearchRef.current = null
++      const bannerEpochAtStart = bannerEpochRef.current
+       setSelectedProduct(product)
+       setGroceryResults([])
+       setSelectedGroceryCard(null)
+@@ -781,6 +928,7 @@
+       setScreenAndFocus('gresults', 'back')
+       try {
+         const envelope = await sendSilent(productSearchPrompt(product))
++        if (bannerEpochAtStart !== bannerEpochRef.current) return
+         const cards = groceryCardsFromEnvelope(envelope)
+         setGroceryResults(cards)
+         // Skip straight past any out-of-stock cards at the head of the list —
+@@ -799,12 +947,15 @@
+         })
+         setFocusKey(firstFocusable >= 0 ? `gresult-${firstFocusable}` : 'retry')
+       } catch (error) {
++        if (bannerEpochAtStart !== bannerEpochRef.current) return
+         setFlowError({ kind: 'products', message: error.message })
+         setFocusKey('retry')
+-      } finally { setLoadingPhase('') }
++      } finally { if (bannerEpochAtStart === bannerEpochRef.current) setLoadingPhase('') }
+     }
+     async function selectRestaurant(restaurant) {
+       if (!restaurant) return
++      bannerSearchRef.current = null
++      const bannerEpochAtStart = bannerEpochRef.current
+       setSelectedRestaurant(restaurant)
+       setMenu(null)
+       setSelectedItem(null)
+@@ -832,6 +983,7 @@
+         + `Use the menu/show_menu capability. ` + `Do not add anything to cart. ` + `Do not place an order.`
+       try {
+         const envelope = await sendSilent(prompt)
++        if (bannerEpochAtStart !== bannerEpochRef.current) return
+         const normalizedMenu = menuFromEnvelope(envelope)
+         const item = chooseMenuItem(normalizedMenu.items, selectedDish?.name)
+         if (!item) throw new Error(envelope?.text || 'No matching menu items were returned.')
+@@ -840,9 +992,10 @@
+         setSelectedItem(item)
+         setFocusKey(item.variants?.length ? 'variant-0' : 'add-cart')
+       } catch (error) {
++        if (bannerEpochAtStart !== bannerEpochRef.current) return
+         setFlowError({ kind: 'menu', message: error.message })
+         setFocusKey('retry')
+-      } finally { setLoadingPhase('') }
++      } finally { if (bannerEpochAtStart === bannerEpochRef.current) setLoadingPhase('') }
+     }
+     async function addToCart() {
+       if (!selectedRestaurant || !selectedItem) return
+@@ -1306,7 +1459,10 @@
+     async function retry() {
+       const kind = flowError?.kind
+       if (kind === 'restaurants') { await selectDish(selectedDish); return }
+-      if (kind === 'products') { await selectProduct(selectedProduct); return }
++      if (kind === 'products') {
++        if (selectedProduct?.shortcut) { await selectBannerProduct(selectedProduct.shortcut); return }
++        await selectProduct(selectedProduct); return
++      }
+       if (kind === 'menu') { await selectRestaurant(selectedRestaurant); return }
+       if (kind === 'cart') { await (vertical === 'grocery' ? addGroceryToCart() : addToCart()); return }
+       if (kind === 'basket_cart') { await openPlatformCart(flowError.platform); return }
+@@ -1327,7 +1483,7 @@
+     }
+     function activate(key) {
+       if (key === 'back') return goBack()
+-      if (key === 'exit') return onClose()
++      if (key === 'exit') { bannerSearchRef.current = null; return onClose() }
+       if (key === 'start-shopping') { setNotice(''); return setScreenAndFocus('mode', 'mode-food') }
+       if (key === 'mode-food' || key === 'mode-grocery') {
+         const grocery = key === 'mode-grocery'
+@@ -1838,8 +1994,12 @@
+       const card = selectedGroceryCard
+       return (
+         <>
+-          {renderHeader('Review', '', selectedProduct?.name)}
+-          {card && (
++          {renderHeader(selectedProduct?.shortcut ? 'Choose quantity' : 'Review', '', selectedProduct?.name)}
++          {selectedProduct?.shortcut && loadingPhase === 'products' && <LoadingState label={`Finding ${selectedProduct.name}`} />}
++          {selectedProduct?.shortcut && flowError?.kind === 'products' && <ErrorState
++            title="Couldn't find your product" detail={structuredErrorDetail(flowError)} onRetry={retry}
++            focused={focusKey === 'retry'} onFocus={() => setFocusKey('retry')} />}
++          {card && (!selectedProduct?.shortcut || (!loadingPhase && !flowError)) && (
+             <div className="qb-review">
+               <div className="qb-review-card">
+                 <Media src={card.image_url} fallback="🛒" alt={card.name} className="qb-review-image" />
+@@ -2232,7 +2392,7 @@
+       delivered: () => renderTrackingScreen('delivered'), cancelled: renderCancelled,
+     }
+     return (
+-      <aside ref={panelRef} className={`qb-panel ${open ? 'is-open' : ''}`} aria-hidden={!open} aria-label="QuickShop food ordering">
++      <aside ref={panelRef} className={`qb-panel ${open ? 'is-open' : ''}`} aria-hidden={!open} aria-label="QuickShop food ordering" data-screen={screen}>
+         <header className="qb-panel-top"><QuickBiteLogo /></header>
+         <main className="qb-panel-body">
+           <div className={`qb-screen ${screen === 'home' ? 'qb-screen-full' : ''}`} key={screen}>
