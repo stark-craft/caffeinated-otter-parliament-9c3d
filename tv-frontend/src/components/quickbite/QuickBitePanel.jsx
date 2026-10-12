@@ -1356,8 +1356,12 @@ const QuickBitePanel = forwardRef(
     function handleStripKey(key) {
       if (!confirmStrip) return false
       const count = confirmStrip.options.length
-      if (key === 'ArrowLeft') { setStripIndex((i) => Math.max(0, i - 1)); return true }
-      if (key === 'ArrowRight') { setStripIndex((i) => Math.min(count - 1, i + 1)); return true }
+      if (key === 'ArrowLeft' || key === 'ArrowUp') {
+        setStripIndex((i) => Math.max(0, i - 1)); return true
+      }
+      if (key === 'ArrowRight' || key === 'ArrowDown') {
+        setStripIndex((i) => Math.min(count - 1, i + 1)); return true
+      }
       if (key === 'Enter' || key === ' ') {
         handleStripPick(confirmStrip.options[stripIndex])
         return true
@@ -2440,7 +2444,15 @@ const QuickBitePanel = forwardRef(
         return openPlatformCart(widgetModel?.platform)
       }
       if (/^acart-(minus|plus)-\d+$/.test(key)) {
-        return setWidgetModel(model => editAgentCartQuantity(model, trailingIndex(key), key.startsWith('acart-plus-') ? 1 : -1))
+        const index = trailingIndex(key)
+        const updated = editAgentCartQuantity(widgetModel, index, key.startsWith('acart-plus-') ? 1 : -1)
+        if (updated === widgetModel) return
+        setWidgetModel(updated)
+        if (updated.lines.length < widgetModel.lines.length) {
+          const next = Math.min(index, updated.lines.length - 1)
+          setFocusKey(next >= 0 ? `acart-minus-${next}` : 'acart-checkout')
+        }
+        return
       }
       if (key === 'acart-edit') {
         return askFromWidget(`make changes to my ${widgetModel?.platform || ''} cart`.replace(/\s+/g, ' '))
