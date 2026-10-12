@@ -464,9 +464,17 @@ async function editableCarts(browser) {
       await f.page.locator('[aria-label="Rice quantity"]').filter({ hasText: /^3$/ }).waitFor();
       await f.click('acart-checkout'); await f.waitScreen('cart');
       assert.equal(mutations, 1, 'Back and an unchanged cart must not repeat quantity mutation');
+      await f.click('cart-item-0');
+      await f.page.keyboard.press('ArrowUp');
+      await f.page.locator(`${panelSelector}[data-focus-key="screen-heading"]`).waitFor();
+      assert.equal(await f.page.locator(`${panelSelector} .qb-panel-body`).evaluate(node => node.scrollTop), 0);
       await f.click('cart-clear');
       await f.page.getByRole('alertdialog', { name: /Clear every item from/ }).waitFor();
+      await f.page.locator(`${panelSelector} .qb-modal-layer [data-qb-confirm="0"]`).waitFor();
+      assert.equal(await f.page.locator(`${panelSelector}.has-confirmation`).count(), 1);
       assert.equal(cancellations, 0);
+      await f.page.keyboard.press('ArrowDown');
+      await f.page.locator(`${panelSelector}[data-focus-key="confirm-1"]`).waitFor();
       await f.page.getByRole('button', { name: 'Keep cart', exact: true }).click();
       assert.equal(cancellations, 0);
       await f.click('cart-clear');
