@@ -642,6 +642,7 @@ const QuickBitePanel = forwardRef(
         if (screen === 'cart') {
           if (flowError) return ['retry', 'shop-more']
           return [
+            ...(cart?.items || []).map((_, index) => `cart-item-${index}`),
             ...checkoutActions.map((_, index) => `checkout-action-${index}`),
             ...(cart?.items?.length && !orderSubmitted ? ['cart-clear'] : []),
             'shop-more',
@@ -4354,8 +4355,9 @@ const QuickBitePanel = forwardRef(
                   index,
                 ) => (
                   <div
-                    className="qb-cart-item"
+                    className={`qb-cart-item ${focusKey === `cart-item-${index}` ? 'is-focused' : ''}`}
                     key={`${item.name}-${index}`}
+                    {...focusableProps(`cart-item-${index}`)}
                   >
                     <Media
                       src={
