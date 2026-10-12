@@ -6,15 +6,22 @@ import { PROVIDERS } from '../../../quickbite/providers.js'
 }) {
   return (
     <div className="qb-answer" role={model.error ? 'alert' : undefined}>
-      <p className="qb-answer-overline">{model.overline}</p>
-      <h1 className="qb-answer-title">{model.title}</h1>
-      {model.bullets.length > 0 && (
-        <ul className="qb-answer-bullets">
-          {model.bullets.map((b, i) => (
-            <li key={`b-${i}`}>{b}</li>
-          ))}
-        </ul>
-      )}
+      {/* Remote ArrowUp from the first action now reaches the actual answer
+          heading. The panel then scrolls its body back to the top. */}
+      <div
+        className={`qb-screen-heading ${focusKey === 'screen-heading' ? 'is-focused' : ''}`}
+        role="group"
+        aria-label="QuickShop response"
+        {...focusableProps('screen-heading')}
+      >
+        <p className="qb-answer-overline">{model.overline}</p>
+        <h1 className="qb-answer-title">{model.title}</h1>
+        {model.bullets.length > 0 && (
+          <ul className="qb-answer-bullets">
+            {model.bullets.map((b, i) => <li key={`b-${i}`}>{b}</li>)}
+          </ul>
+        )}
+      </div>
       <div className="qb-answer-actions">
         {model.reconnectProvider && (
           <button className={`qb-secondary-button qb-answer-action ${focusKey === 'reconnect-provider' ? 'is-focused' : ''}`}
