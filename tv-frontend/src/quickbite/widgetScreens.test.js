@@ -76,7 +76,12 @@ test('food carts retain preview and Edit items, while Clear Cart is explicitly f
   assert.equal(screen, 'agent-cart')
   assert.equal(model.editable, false)
   assert.equal(model.lines.length, 6)
-  assert.deepEqual(focusKeysFor(screen, model), ['acart-checkout', 'acart-edit', 'acart-more', 'acart-clear'])
+  assert.deepEqual(focusKeysFor(screen, model),
+    ['acart-item-0', 'acart-item-1', 'acart-item-2', 'acart-item-3', 'acart-item-4',
+      'acart-checkout', 'acart-edit', 'acart-more', 'acart-clear'])
+  assert.deepEqual(focusKeysFor(screen, model, { expanded: true }),
+    ['acart-item-0', 'acart-item-1', 'acart-item-2', 'acart-item-3', 'acart-item-4',
+      'acart-item-5', 'acart-checkout', 'acart-edit', 'acart-clear'])
 })
 
 test('grocery carts with zero items render an intentional empty state; food cart with no rows safely falls back', () => {
