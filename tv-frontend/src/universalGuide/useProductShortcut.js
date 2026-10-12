@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { groceryLandingRequest } from './catalog.js'
+import { groceryShortcutRequest } from '../quickbite/groceryShortcut.js'
 
-// Authentication remains App-owned. Only a local browse target is held here;
-// this hook never sends a chat request or constructs/generates a QR code.
+// Authentication remains App-owned. Hold the banner request until Grocery
+// unlocks; the existing panel then searches and opens quantity review.
 export function useProductShortcut({ groceryUnlocked, paneOpen, pairingActive,
   onNavigate, onRequestLogin, onOpen }) {
   const [pending, setPending] = useState(null)
@@ -20,7 +20,7 @@ export function useProductShortcut({ groceryUnlocked, paneOpen, pairingActive,
   }, [pending, paneOpen, pairingActive, groceryUnlocked, onNavigate])
 
   return productId => {
-    const request = groceryLandingRequest(productId)
+    const request = groceryShortcutRequest(productId)
     if (!request) return
     if (groceryUnlocked) {
       pendingRef.current = null

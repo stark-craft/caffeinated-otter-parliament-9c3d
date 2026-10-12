@@ -42,6 +42,7 @@ import CompareScreen from './screens/CompareScreen.jsx'
 import BasketCompareScreen from './screens/BasketCompareScreen.jsx'
 import SpendScreen from './screens/SpendScreen.jsx'
 import { GROCERY_CATEGORIES, GROCERY_PRODUCTS } from '../../quickbite/groceryCatalog.js'
+import { GROCERY_SHORTCUTS, groceryShortcutRequest, groceryShortcutPrompt, firstMatchingGroceryOffer } from '../../quickbite/groceryShortcut.js'
 import { HOME_BACKDROP, MODE_TILES } from '../../quickbite/heroArt.js'
 import { confirmedCodCheckout, orderPlatform, paymentMethodFromEnvelope, paymentPresentation } from '../../quickbite/payMode.js'
 import { voiceError, voiceLog, voiceWarn } from '../../quickbite/voiceDiagnostics.js'
@@ -337,6 +338,10 @@ const QuickBitePanel = forwardRef(
     const journeyEpochRef = useRef(0)
     const widgetActionRef = useRef(null)
     const cartEditInFlightRef = useRef(null)
+    const shortcutSearchRef = useRef(null)
+    const handledShortcutRef = useRef(null)
+    const panelOpenRef = useRef(open)
+    panelOpenRef.current = open
     const [screen, setScreenState] =
       useState('home')
     const screenRef = useRef('home')
@@ -549,6 +554,8 @@ const QuickBitePanel = forwardRef(
           return ['gbasket-cart']
         }
         if (screen === 'greview') {
+          if (loadingPhase === 'products') return []
+          if (flowError?.kind === 'products') return ['retry']
           return [
             ...(quantity > 1 ? ['gqty-minus'] : []),
             'gqty-plus',
@@ -822,13 +829,40 @@ const QuickBitePanel = forwardRef(
       dishes.length,
       loadingPhase,
     ])
-    /* One input shape: every request App issues is a routed intent. The router
-       decides where to go and what to do; this effect only carries the decision
-       out through handlers that already exist. It never performs a financial or
-       destructive request - those arrive as `awaitConfirm`, which only raises
-       a notice; the charge waits for a focused press on a checkout action. */
+    useEffect(() => {
+      if (!open && shortcutSearchRef.current) {
+        shortcutSearchRef.current = null
+        setLoadingPhase('')
+        setFlowError({ kind: 'products', message: 'The product search was closed. Retry to check availability.' })
+        setFocusKey('retry')
+      }
+    }, [open])
+    /* App navigation, intents and banner discovery use the existing router and
+       handlers. A banner may search, but never adds or checks out by itself.
+       Financial/destructive intents still arrive as `awaitConfirm`; the charge
+       waits for a focused press on a checkout action. */
     useEffect(() => {
       if (!externalRequest?.nonce) return
+      if (shortcutSearchRef.current && shortcutSearchRef.current.nonce !== externalRequest.nonce) {
+        shortcutSearchRef.current = null
+        setLoadingPhase('')
+      }
+      if (externalRequest.type === 'grocery-shortcut') {
+        if (handledShortcutRef.current === externalRequest.nonce) return
+        handledShortcutRef.current = externalRequest.nonce
+        if (!groceryShortcutRequest(externalRequest.productId)) return
+        const product = GROCERY_SHORTCUTS[externalRequest.productId]
+        const guard = routeIntent({ name: 'search', confidence: 0.99, slots: {
+          query: product.name, vertical: 'grocery',
+        }, alternatives: [] }, currentView())
+        if (guard.strip) { setConfirmStrip(guard.strip); setStripIndex(0); return }
+        if (!merchantAccess?.grocery) { onRequestLogin?.('grocery'); return }
+        setConfirmStrip(null)
+        setNotice('')
+        setGroceryCategory(null)
+        selectProduct({ ...product, shortcut: product.id })
+        return
+      }
       const traceId = externalRequest.voiceTraceId
       if (traceId) {
         lastVoiceTraceRef.current = traceId
@@ -1169,6 +1203,7 @@ const QuickBitePanel = forwardRef(
       journeyEpochRef.current += 1
       widgetActionRef.current = null
       cartEditInFlightRef.current = null
+      shortcutSearchRef.current = null
       setFlowError(null)
       setLoadingPhase('')
       retireAwaitingConfirm()
@@ -1350,6 +1385,7 @@ const QuickBitePanel = forwardRef(
       journeyEpochRef.current += 1
       widgetActionRef.current = null
       cartEditInFlightRef.current = null
+      shortcutSearchRef.current = null
       widgetModelsRef.current = {}
       setVertical(nextVertical)
       setSelectedRestaurant(null)
@@ -1433,19 +1469,44 @@ const QuickBitePanel = forwardRef(
     }
     async function selectProduct(product = currentProduct) {
       if (!product) return
+      const shortcut = product.shortcut && GROCERY_SHORTCUTS[product.shortcut]
+      if (shortcut && shortcutSearchRef.current?.epoch === journeyEpochRef.current &&
+        shortcutSearchRef.current.productId === shortcut.id) return
       resetSearchContext('grocery')
+      const request = shortcut ? { productId: shortcut.id, epoch: journeyEpochRef.current,
+        nonce: externalRequest?.nonce } : null
+      if (request) shortcutSearchRef.current = request
       setSelectedProduct(product)
       setGroceryResults([])
       setSelectedGroceryCard(null)
       setFlowError(null)
       setLoadingPhase('products')
-      setScreenAndFocus('gresults', 'back')
+      setScreenAndFocus(shortcut ? 'greview' : 'gresults', 'back')
       let superseded = false
       try {
-        const envelope = await sendSilent(`Find ${product.name} near me.`, { searchVertical: 'grocery' })
+        const envelope = await sendSilent(shortcut ? groceryShortcutPrompt(shortcut)
+          : `Find ${product.name} near me.`, { searchVertical: 'grocery' })
+        if (request && (shortcutSearchRef.current !== request ||
+          journeyEpochRef.current !== request.epoch || !panelOpenRef.current)) {
+          superseded = true; return
+        }
         const cards = groceryCardsFromEnvelope(envelope)
-        commerceLog('rendered', { screen: 'gresults', providers: responseProviders(envelope) })
+        commerceLog('rendered', { screen: shortcut ? 'greview' : 'gresults', providers: responseProviders(envelope) })
         setGroceryResults(cards)
+        if (shortcut) {
+          const card = firstMatchingGroceryOffer(cards, shortcut.id)
+          if (!card) {
+            setFlowError({ kind: 'products', message: cards.length
+              ? `No in-stock ${shortcut.name} with a confirmed price and store was returned. Retry to check availability.`
+              : envelope?.text || `No in-stock ${shortcut.name} was returned. Retry to check availability.` })
+            setFocusKey('retry')
+          } else {
+            setSelectedGroceryCard(card)
+            setQuantity(1)
+            setFocusKey('gqty-plus')
+          }
+          return
+        }
         // Skip straight past any out-of-stock cards at the head of the list —
         // they are excluded from contentKeys, so landing focus on one would be
         // a dead ring the remote can never confirm.
@@ -1467,11 +1528,18 @@ const QuickBitePanel = forwardRef(
         )
         setFocusKey(firstFocusable >= 0 ? `gresult-${firstFocusable}` : 'retry')
       } catch (error) {
+        if (request && (shortcutSearchRef.current !== request ||
+          journeyEpochRef.current !== request.epoch || !panelOpenRef.current)) {
+          superseded = true; return
+        }
         if (error.kind === 'superseded-search') { superseded = true; return }
         setFlowError({ kind: 'products', message: error.message })
         setFocusKey('retry')
       } finally {
-        if (!superseded) setLoadingPhase('')
+        if (!superseded) {
+          if (shortcutSearchRef.current === request) shortcutSearchRef.current = null
+          setLoadingPhase('')
+        }
       }
     }
     async function selectRestaurant(
@@ -3324,8 +3392,12 @@ const QuickBitePanel = forwardRef(
       const card = selectedGroceryCard
       return (
         <>
-          {renderHeader('Review', '', selectedProduct?.name)}
-          {card && (
+          {renderHeader(selectedProduct?.shortcut ? 'Choose quantity' : 'Review', '', selectedProduct?.name)}
+          {loadingPhase === 'products' && <LoadingState label={`Finding ${selectedProduct?.name || 'your product'}`} />}
+          {flowError?.kind === 'products' && <ErrorState title="Couldn't find your product"
+            detail={structuredErrorDetail(flowError)} onRetry={retry} focused={focusKey === 'retry'}
+            onFocus={() => setFocusKey('retry')} />}
+          {!loadingPhase && !flowError && card && (
             <div className="qb-review">
               <div className="qb-review-card">
                 <Media

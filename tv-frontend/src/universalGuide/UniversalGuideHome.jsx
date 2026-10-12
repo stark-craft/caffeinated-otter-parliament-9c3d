@@ -192,7 +192,7 @@ export default function UniversalGuideHome({ paneOpen, videoView, onProductSelec
       <div ref={feedRef} className="ug-feed main-content">
         <div className="hero-shell" data-ug-row="hero">
           <div ref={heroRef} role="button" tabIndex={0} className={`hero-banner ${heroExpanded ? 'expanded' : 'collapsed'}`} data-ug-focus="hero"
-            aria-label={slide.id === 'himym' ? slide.title : `Explore ${slide.id === 'chips' ? 'Lay’s chips' : 'milk'}`}
+            aria-label={slide.id === 'himym' ? slide.title : slide.label}
             data-product-id={slide.id} onClick={() => { if (slide.id !== 'himym') onProductSelect?.(slide.id) }}>
             {HERO_SLIDES.map((item, index) => <div key={item.id} className={`hero-slide ug-theme-${item.theme} ${index === slideIndex ? 'active' : ''}`}>
               <GuideArt item={item} hero className="hero-backdrop" />

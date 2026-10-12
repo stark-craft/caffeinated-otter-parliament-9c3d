@@ -10,7 +10,7 @@ Keep JPG filenames (convert PNG/WebP to JPG first). Poster artwork: 600 × 900; 
 | --- | --- |
 | hero-entertainment.jpg | How I Met Your Mother hero |
 | hero-milk.jpg | Fresh milk hero |
-| hero-chips.jpg | Lay’s chips hero |
+| hero-cola.jpg | Coca-Cola 1 L hero |
 
 ## Cards and logos
 

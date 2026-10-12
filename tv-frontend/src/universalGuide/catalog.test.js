@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 import { HERO_SLIDES, groceryLandingRequest } from './catalog.js'
 import { GROCERY_PRODUCTS } from '../quickbite/groceryCatalog.js'
 
-test('demo hero contains one inert entertainment slide and two local grocery targets', () => {
-  assert.deepEqual(HERO_SLIDES.map(slide => slide.id), ['himym', 'milk', 'chips'])
+test('demo hero contains one inert entertainment slide and the two fixed grocery promotions', () => {
+  assert.deepEqual(HERO_SLIDES.map(slide => slide.id), ['himym', 'milk', 'cola'])
   assert.equal(groceryLandingRequest('himym'), null)
   assert.equal(groceryLandingRequest('checkout'), null)
 })
