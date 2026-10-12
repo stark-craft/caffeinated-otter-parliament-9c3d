@@ -1464,7 +1464,7 @@ const QuickBitePanel = forwardRef(
         shortcutSearchRef.current.productId === shortcut.id) return
       resetSearchContext('grocery')
       const request = shortcut ? { productId: shortcut.id, epoch: journeyEpochRef.current,
-        nonce: externalRequest?.nonce } : null
+        nonce: externalRequest?.nonce, lookupId: `${Date.now()}-${journeyEpochRef.current}` } : null
       if (request) shortcutSearchRef.current = request
       setSelectedProduct(product)
       setGroceryResults([])
@@ -1474,7 +1474,7 @@ const QuickBitePanel = forwardRef(
       setScreenAndFocus(shortcut ? 'greview' : 'gresults', 'back')
       let superseded = false
       try {
-        let envelope = await sendSilent(shortcut ? groceryShortcutPrompt(shortcut, journeyEpochRef.current)
+        let envelope = await sendSilent(shortcut ? groceryShortcutPrompt(shortcut, request.lookupId)
           : `Find ${product.name} near me.`, { searchVertical: 'grocery' })
         if (request && (shortcutSearchRef.current !== request ||
           journeyEpochRef.current !== request.epoch || !panelOpenRef.current)) {
@@ -1484,7 +1484,7 @@ const QuickBitePanel = forwardRef(
         // recap. Permit one bounded search-only recheck, never a cart mutation.
         if (shortcut && isRepeatedResultSummary(envelope)) {
           envelope = await sendSilent(
-            groceryShortcutPrompt(shortcut, journeyEpochRef.current, true),
+            groceryShortcutPrompt(shortcut, request.lookupId, true),
             { searchVertical: 'grocery' },
           )
           if (request && (shortcutSearchRef.current !== request ||
