@@ -88,6 +88,11 @@ export default function AgentCartScreen({
         >
           Edit items
         </button>}
+        {lines.length > 0 && <button type="button"
+          className={`qb-secondary-button ${focusKey === "acart-clear" ? "is-focused" : ""}`}
+          {...focusableProps("acart-clear")}>
+          Clear Cart
+        </button>}
       </div>
     </>
   );
