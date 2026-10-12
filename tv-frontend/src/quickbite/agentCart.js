@@ -29,19 +29,27 @@ export function normalizeAgentCart(envelope) {
   if (!lines.length && !grocery) return null
   return { platform, lines, editable: grocery, source: stocked ? 'basket_stocked' : cart.source || 'platform',
     total: numericMoney(cart.total), totalLabel: cart.total_is_subtotal ? 'Item subtotal' : 'Total',
-    dirty: false, caption: envelope?.text || '',
+    dirty: false, removedLines: [], caption: envelope?.text || '',
     unavailable: (stocked ? payload.cut?.length || 0 : 0) + items.length - lines.length }
 }
 
 // Draft edits never mutate a backend cart or initiate checkout. The current
 // contract does not explicitly define quantity zero as removal: keep minimum 1.
+// Reaching zero removes a draft row. Keep a tombstone so Review Cart sends
+// an explicit provider removal instead of silently forgetting a real item.
 export function editAgentCartQuantity(model, index, delta) {
   if (!model?.editable || !model.lines?.[index]) return model
   const line = model.lines[index]
-  const quantity = Math.max(1, line.quantity + delta)
+  const quantity = Math.max(0, line.quantity + delta)
   if (quantity === line.quantity) return model
+  if (quantity === 0) {
+    const lines = model.lines.filter((_, i) => i !== index)
+    const removedLines = [...(model.removedLines || []), line]
+    return { ...model, lines, removedLines, dirty: true }
+  }
   const lines = model.lines.map((entry, i) => i === index ? { ...entry, quantity } : entry)
-  const dirty = lines.some(entry => entry.quantity !== entry.originalQuantity)
+  const dirty = (model.removedLines?.length || 0) > 0 ||
+    lines.some(entry => entry.quantity !== entry.originalQuantity)
   return { ...model, lines, dirty }
 }
 
@@ -54,8 +62,10 @@ export function agentCartDisplayTotal(model) {
 export function agentCartEditPrompt(model) {
   if (!model?.editable || !model.platform) return ''
   const edits = model.lines.filter(line => line.quantity !== line.originalQuantity)
-  if (!edits.length) return ''
+  const removals = model.removedLines || []
+  if (!edits.length && !removals.length) return ''
   return `Update quantities in my existing ${model.platform} cart: ` +
-    edits.map(line => `Set ${JSON.stringify(line.name + (line.pack_size ? ` (${line.pack_size})` : ''))} to exactly ${line.quantity}.`).join(' ') +
+    [...removals.map(line => `Remove ${JSON.stringify(line.name + (line.pack_size ? ` (${line.pack_size})` : ''))} completely from the existing cart.`),
+      ...edits.map(line => `Set ${JSON.stringify(line.name + (line.pack_size ? ` (${line.pack_size})` : ''))} to exactly ${line.quantity}.`)].join(' ') +
     ' Do not add duplicate items, change other items, place an order, or pay. Show the updated cart total and ask me to confirm before checkout.'
 }
