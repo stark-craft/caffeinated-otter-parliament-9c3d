@@ -519,7 +519,7 @@ const QuickBitePanel = forwardRef(
     const missingZomatoInstructions = orderSubmitted && paymentMode === 'qr' &&
       providerId(orderPlatformName) === 'zomato' && !stableQr
     const waitingForInstructions = missingZomatoInstructions && trackingState?.polling && !trackingState?.completedPolls
-    const contentKeys =
+    const screenKeys =
       useMemo(() => {
         if (['text', 'agent-cart', 'compare', 'basket-compare', 'spend'].includes(screen)) {
           /* While a widget button's request is in flight the screen shows only
@@ -691,6 +691,12 @@ const QuickBitePanel = forwardRef(
         cartExpanded,
         checkoutWithoutTracking,
       ])
+    // The heading is an explicit remote stop, so a user moving back up a
+    // long response can read the answer above the first card.
+    const contentKeys = useMemo(() => (
+      screen === 'home' || (NEW_SCREENS.includes(screen) && loadingPhase === 'agent')
+        ? screenKeys : ['screen-heading', ...screenKeys]
+    ), [screen, loadingPhase, screenKeys])
     useLayoutEffect(() => {
       if (!open || confirmStrip) return
       const valid = [...contentKeys, 'back', 'exit']
@@ -764,8 +770,12 @@ const QuickBitePanel = forwardRef(
         const rect = surface.getBoundingClientRect()
         const delta = rect.top < bounds.top + 8 ? rect.top - bounds.top - 8
           : rect.bottom > bounds.bottom - 8 ? rect.bottom - bounds.bottom + 8 : 0
-        if (delta) body.scrollTo({ top: body.scrollTop + delta,
-          behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' })
+        if (focusKey === 'screen-heading') {
+          body.scrollTo({ top: 0, behavior: 'instant' })
+        } else if (delta) {
+          body.scrollTo({ top: body.scrollTop + delta,
+            behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' })
+        }
       }
     }, [
       focusKey,
@@ -3132,7 +3142,8 @@ const QuickBitePanel = forwardRef(
       breadcrumb,
     ) {
       return (
-        <div className="qb-screen-heading">
+        <div className={`qb-screen-heading ${focusKey === 'screen-heading' ? 'is-focused' : ''}`}
+          {...focusableProps('screen-heading')}>
           {breadcrumb && (
             <p className="qb-breadcrumb">
               {breadcrumb}
@@ -5115,13 +5126,17 @@ const QuickBitePanel = forwardRef(
               screen
             ]?.()}
           </div>
-          <ConfirmStrip
-            strip={open ? confirmStrip : null}
-            focusIndex={stripIndex}
-            onFocusIndex={setStripIndex}
-            onPick={(option) => handleStripPick(option)}
-          />
         </main>
+        {open && confirmStrip && (
+          <div className="qb-modal-layer">
+            <ConfirmStrip
+              strip={confirmStrip}
+              focusIndex={stripIndex}
+              onFocusIndex={setStripIndex}
+              onPick={(option) => handleStripPick(option)}
+            />
+          </div>
+        )}
         <nav
           className="qb-bottom-nav"
           aria-label="QuickBite navigation"
