@@ -550,6 +550,37 @@ async function widgetRace(browser) {
   } finally { release(); await f.finish(); }
 }
 
+async function quickPromptScenarios(browser) {
+  const cases = [
+    { index: 0, fragment: '1 kg chicken biryani', screen: 'agent-cart', vertical: 'grocery' },
+    { index: 1, fragment: '1 kg kimchi', screen: 'agent-cart', vertical: 'grocery' },
+    { index: 2, fragment: 'pizza restaurants on Zomato', screen: 'restaurant', vertical: 'food' },
+    { index: 3, fragment: 'Haldiram on Zomato', screen: 'restaurant', vertical: 'food' },
+  ]
+  for (const scenario of cases) {
+    const f = await fixture(browser, request => {
+      if (/ingredients/i.test(request.message)) {
+        return { widget: 'basket_stocked', payload: { platform: 'Zepto',
+          lines: [{ name: 'Cabbage', count: 1, line_total: 30, status: 'stocked' }], cut: [] } }
+      }
+      return result('zomato')
+    })
+    try {
+      await f.page.keyboard.press('Enter')
+      await f.click('start-shopping')
+      await f.waitScreen('mode')
+      const key = `quick-prompt-${scenario.index}`
+      await f.click(key)
+      await f.waitScreen(scenario.screen)
+      assert.equal(f.state.requests.length, 1, 'a single Quick Prompt should submit only one live chat request')
+      assert.ok(f.state.requests[0].message.includes(scenario.fragment), scenario.fragment)
+      assert.equal(f.state.requests[0].view.vertical, scenario.vertical)
+      assert.equal(f.state.requests[0].view.screen, 'home')
+      console.log(`PASS Quick Prompt ${scenario.index + 1}: same transcript-to-chat route without STT`)
+    } finally { await f.finish() }
+  }
+}
+
 async function destructiveTextActions(browser) {
   const label = 'clear cart'
   let clears = 0, emptied = false
@@ -594,10 +625,11 @@ async function destructiveTextActions(browser) {
     await comparisonBack(browser);
     await widgetRace(browser);
     await destructiveTextActions(browser);
+    await quickPromptScenarios(browser);
     for (const platform of ['Zomato','Swiggy','Swiggy Instamart','Zepto']) await payment(browser, platform);
     await require('./final-frontend-audit.cjs')(browser, { fixture, visibleFocus, panelSelector, auditDir });
     fs.writeFileSync('/tmp/quickbite-provider-evidence.json', JSON.stringify(evidence, null, 2));
     fs.writeFileSync(`${auditDir}/focus-evidence.json`, JSON.stringify(focusEvidence, null, 2));
-    console.log('PASS all 40 browser scenarios. Sanitized traces: /tmp/quickbite-provider-evidence.json; focus and screenshots: ' + auditDir);
+    console.log('PASS browser scenarios including the four STT-free Quick Prompts. Sanitized traces: /tmp/quickbite-provider-evidence.json; focus and screenshots: ' + auditDir);
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });
