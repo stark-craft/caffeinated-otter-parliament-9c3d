@@ -692,6 +692,7 @@ const QuickBitePanel = forwardRef(
         quantity,
         menu,
         widgetModel,
+        stockedBasket,
         cartExpanded,
         checkoutWithoutTracking,
       ])
