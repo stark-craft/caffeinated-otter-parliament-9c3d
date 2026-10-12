@@ -1,0 +1,10 @@
+{
+  "unitTestsPassed": 88,
+  "mockedBrowserScenariosPassed": 32,
+  "repositoryBuildPassed": true,
+  "windowsFixtureBuildPassed": true,
+  "installerValidationPassed": true,
+  "packageFiles": 17,
+  "packageBytes": 23624,
+  "packageSha256": "fe8d8cae3d2aaf754619fcf857fed4efa29b9771314d79eede76b995118d2adc"
+}

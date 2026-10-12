@@ -5,9 +5,9 @@ import UniversalGuideHome from './UniversalGuideHome.jsx'
 import './reference.css'
 import './universalGuide.css'
 
-// Same host contract as VideoPlayer. Keep its video mounted, source resolver,
-// media keys and commerce keyboard dispatcher intact. Hoist only the supplied
-// overlay to the full home stage, so a small video tile cannot clip the panel.
+// Same host contract as VideoPlayer. Keep its video mounted, source resolver
+// and commerce keyboard dispatcher. The host owns Play/Pause-to-home in the
+// full guide video view and keeps the overlay outside the small video tile.
 export default function UniversalGuidePlayer({ onProductSelect, ...playerProps }) {
   const rootRef = useRef(null)
   const homeStageRef = useRef(null)
@@ -44,12 +44,35 @@ export default function UniversalGuidePlayer({ onProductSelect, ...playerProps }
     document.addEventListener('fullscreenchange', changed)
     return () => document.removeEventListener('fullscreenchange', changed)
   }, [classic, playerProps.onFullscreenChange])
+  useEffect(() => {
+    if (classic || !videoView) return
+    const control = event => {
+      if (event.defaultPrevented || event.target?.isContentEditable ||
+        ['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target?.tagName)) return
+      const key = tvRemoteKey(event)
+      if (['MediaPlayPause', 'MediaPlay', 'MediaPause', ' '].includes(key)) {
+        event.preventDefault()
+        event.stopPropagation()
+        if (!event.repeat) {
+          playerProps.onCloseShop?.()
+          setVideoView(false)
+        }
+      } else if (!playerProps.paneOpen && ['Backspace', 'Escape'].includes(key)) {
+        // Repeated Back exits commerce only. Home is a deliberate media-key action.
+        event.preventDefault()
+        event.stopPropagation()
+      }
+    }
+    document.addEventListener('keydown', control, true)
+    return () => document.removeEventListener('keydown', control, true)
+  }, [classic, videoView, playerProps.paneOpen, playerProps.onCloseShop])
   if (classic) {
     return <VideoPlayer {...playerProps} />
   }
   const { paneOpen, commerceOverlay, onCloseShop } = playerProps
   return (
-    <div ref={rootRef} tabIndex={-1} className={`ug-player ${paneOpen && !videoView ? 'ug-shop-open' : ''} ${videoView ? 'ug-video-view' : ''}`} onKeyDownCapture={event => {
+    <div ref={rootRef} tabIndex={-1} className={`ug-player ${paneOpen ? 'ug-shop-open' : ''} ${videoView ? 'ug-video-view' : ''}`} onKeyDownCapture={event => {
+      if (event.defaultPrevented) return
       if (event.target?.isContentEditable ||
         ['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target?.tagName)) return
       const key = tvRemoteKey(event)
@@ -63,7 +86,6 @@ export default function UniversalGuidePlayer({ onProductSelect, ...playerProps }
         if (videoView && !paneOpen) {
           event.preventDefault()
           event.stopPropagation()
-          setVideoView(false)
           return
         }
       }
@@ -86,7 +108,11 @@ export default function UniversalGuidePlayer({ onProductSelect, ...playerProps }
         </div>
       </div>
       <div className={`video-player ug-commerce-host ${paneOpen ? 'vp-commerce-open' : ''}`}>
-        <div className="vp-commerce-overlay">{commerceOverlay}</div>
+        <div className="vp-commerce-overlay" onScroll={event => {
+          // Fallback for TV engines without overflow:clip. Panel focus must
+          // never scroll this stationary host horizontally off its contents.
+          if (event.currentTarget.scrollLeft) event.currentTarget.scrollLeft = 0
+        }}>{commerceOverlay}</div>
       </div>
       {videoView && !paneOpen && <button className="ug-video-back" onClick={() => setVideoView(false)}
         onKeyDown={event => {
@@ -95,7 +121,7 @@ export default function UniversalGuidePlayer({ onProductSelect, ...playerProps }
             event.stopPropagation()
             setVideoView(false)
           }
-        }}>‹ TV home <span>Back</span></button>}
+        }}>‹ TV home <span>Play/Pause · Space</span></button>}
     </div>
   )
 }

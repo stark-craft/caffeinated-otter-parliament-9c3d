@@ -1,0 +1,19 @@
+--- a/tv-frontend/src/components/quickbite/QuickBitePanel.jsx
++++ b/tv-frontend/src/components/quickbite/QuickBitePanel.jsx
+@@ -2,6 +2,7 @@
+   forwardRef,
+   useEffect,
+   useImperativeHandle,
++  useLayoutEffect,
+   useMemo,
+   useRef,
+   useState,
+@@ -448,7 +449,7 @@
+        out through handlers that already exist. It never performs a financial or
+        destructive request - those arrive as `awaitConfirm`, which only raises
+        a notice; the charge waits for a focused press on a checkout action. */
+-    useEffect(() => {
++    useLayoutEffect(() => {
+       if (!externalRequest?.nonce) return
+       if (bannerSearchRef.current && bannerSearchRef.current.nonce !== externalRequest.nonce) {
+         bannerSearchRef.current = null

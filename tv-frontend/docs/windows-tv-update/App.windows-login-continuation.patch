@@ -1,0 +1,194 @@
+--- a/tv-frontend/src/App.jsx
++++ b/tv-frontend/src/App.jsx
+@@ -2,6 +2,7 @@
+ import { createQrSession, createSession, getMerchantStatus, getQrSessionStatus, sendChat } from './api.js'
+ import VideoPlayer from './universalGuide/UniversalGuidePlayer.jsx'
+ import { useProductShortcut } from './universalGuide/useProductShortcut.js'
++import { useLoginContinuation, withGroceryPurchaseContext } from './universalGuide/useLoginContinuation.js'
+ import CommerceSidebar from './components/CommerceSidebar.jsx'
+ import QrLoginPanel from './components/quickbite/QrLoginPanel.jsx'
+ import VoiceOverlay from './components/VoiceOverlay.jsx'
+@@ -55,11 +56,18 @@
+ const sessionBootRef = useRef(null)
+ const qrBootRef = useRef(null)
+ const samsungTranscriptRef = useRef(null)
++const continuationResumeRef = useRef(null)
+ const hasConnectedMerchant = anyMerchantConnected(merchantStatuses, platforms)
+ const foodUnlocked = verticalUnlocked(merchantStatuses, platforms, 'food')
+ const groceryUnlocked = verticalUnlocked(merchantStatuses, platforms, 'grocery')
+ const qrReady = authChecked
+ const qrRequired = !qrReady || !hasConnectedMerchant || Boolean(qrTarget) || Boolean(qrSessionId && !qrComplete)
++const loginContinuation = useLoginContinuation({
++paneOpen,
++ready: action => !qrRequired && Boolean(sessionId) && (action.vertical
++  ? verticalUnlocked(merchantStatuses, platforms, action.vertical) : hasConnectedMerchant),
++onResume: action => continuationResumeRef.current?.(action),
++})
+ const refreshMerchantStatuses = useCallback(async () => {
+ const entries = await Promise.all(MERCHANT_IDS.map(async (merchantId) => {
+ try {
+@@ -101,6 +109,7 @@
+ setQrAttempt((attempt) => attempt + 1)
+ }, [])
+ const closeQrLogin = useCallback(() => {
++loginContinuation.clear()
+ if (qrTarget && hasConnectedMerchant) {
+ setQrTarget(null)
+ setQrSessionId('')
+@@ -108,7 +117,7 @@
+ } else {
+ setPaneOpen(false)
+ }
+-}, [qrTarget, hasConnectedMerchant])
++}, [qrTarget, hasConnectedMerchant, loginContinuation.clear])
+ const seedTracking = useCallback((envelope) => {
+ const tracking = trackingFromEnvelope(envelope)
+ if (!tracking) return envelope
+@@ -201,7 +210,7 @@
+ clearInterval(interval)
+ }
+ }, [paneOpen, qrRequired, qrSessionId, qrTarget, refreshMerchantStatuses, refreshCommerceSession])
+-const send = useCallback(async (text, { silent = false, voiceTraceId = null } = {}) => {
++const send = useCallback(async (text, { silent = false, voiceTraceId = null, requestView = null } = {}) => {
+ const message = String(text ?? input).trim()
+ if (!message) {
+ if (voiceTraceId) voiceWarn(voiceTraceId, 'Empty /chat message skipped', { text })
+@@ -218,7 +227,7 @@
+ setLoading(true)
+ setPaneOpen(true)
+ try {
+-const view = buildView({ ...(panelState || {}), activeOrder })
++const view = requestView || buildView({ ...(panelState || {}), activeOrder })
+ if (voiceTraceId) voiceLog(voiceTraceId, 'Frontend → backend /api/chat request (LLM input)', { message, view, silent })
+ const response = await sendChat(sessionId, message, view)
+ if (voiceTraceId) voiceLog(voiceTraceId, 'Backend /api/chat response (envelope; not raw internal LLM output)', response)
+@@ -253,6 +262,7 @@
+ groceryUnlocked, paneOpen, pairingActive: qrTarget === 'grocery',
+ onNavigate: issueRequest, onRequestLogin: requestQrLogin,
+ onOpen: () => setPaneOpen(true),
++loginContinuation,
+ })
+ /* Quick actions predate the intent router and still emit the four legacy
+ request types. Adapting them here means the panel has exactly one input
+@@ -294,24 +304,30 @@
+ })
+ }
+ }
+-const handleTranscript = useCallback(async (transcript, language, source = 'unknown', incomingTraceId = null) => {
++const handleTranscript = useCallback(async (transcript, language, source = 'unknown', incomingTraceId = null, resumeView = null) => {
+ const voiceTraceId = incomingTraceId || newVoiceTrace(source)
++loginContinuation.clear()
+ voiceLog(voiceTraceId, 'CommAgent handleTranscript entered', { transcript, language, source, panelState })
+ setInput(transcript)
+-const view = buildView({ ...(panelState || {}), activeOrder })
++const view = resumeView || buildView({ ...(panelState || {}), activeOrder })
++const deferVoice = vertical => {
++  loginContinuation.remember({ kind: 'voice', transcript, language, source, voiceTraceId, view, vertical })
++  requestQrLogin(vertical)
++}
+ voiceLog(voiceTraceId, 'Current view snapshot for voice routing', view)
+ const voiceCommand = findVoiceCommand(transcript)
+ voiceLog(voiceTraceId, 'Pre-backend navigation label lookup', { matched: Boolean(voiceCommand), command: voiceCommand })
+ if (voiceCommand) {
++  const requestedVertical = ['home', 'track'].includes(voiceCommand.type) ? null
++    : voiceCommand.type.startsWith('grocery') ? 'grocery' : 'food'
+   if (!hasConnectedMerchant) {
+     voiceWarn(voiceTraceId, 'Voice navigation blocked: merchant login required; opening QR panel', { command: voiceCommand })
+-    setPaneOpen(true); return
++    deferVoice(requestedVertical); return
+   }
+-  const requestedVertical = voiceCommand.type.startsWith('grocery') ? 'grocery' : 'food'
+   if (voiceCommand.type !== 'home' && voiceCommand.type !== 'track' &&
+       !verticalUnlocked(merchantStatuses, platforms, requestedVertical)) {
+     voiceWarn(voiceTraceId, 'Voice navigation blocked: vertical locked; opening QR panel', { requestedVertical, command: voiceCommand })
+-    requestQrLogin(requestedVertical)
++    deferVoice(requestedVertical)
+     return
+   }
+   setPaneOpen(true)
+@@ -324,18 +340,18 @@
+   }
+   return
+ }
+-const local = deriveIntent(transcript, { ...view, language }, null)
++const local = withGroceryPurchaseContext(transcript, deriveIntent(transcript, { ...view, language }, null))
++const requestedVertical = local.slots?.vertical === 'grocery' ? 'grocery' : 'food'
+ voiceLog(voiceTraceId, 'Local intent derivation', local)
+ if (!hasConnectedMerchant) {
+ voiceWarn(voiceTraceId, 'Voice intent blocked: merchant login required; opening QR panel', { intent: local.name })
+-setPaneOpen(true)
++deferVoice(requestedVertical)
+ return
+ }
+-const requestedVertical = local.slots?.vertical === 'grocery' ? 'grocery' : 'food'
+ if ((local.name === 'switch_vertical' || ['search', 'refine', 'compare'].includes(local.name)) &&
+ !verticalUnlocked(merchantStatuses, platforms, requestedVertical)) {
+ voiceWarn(voiceTraceId, 'Voice intent blocked: vertical locked; opening QR panel', { requestedVertical, intent: local.name })
+-requestQrLogin(requestedVertical)
++deferVoice(requestedVertical)
+ return
+ }
+ /* The router, not this function, decides whether a round trip is allowed.
+@@ -362,7 +378,9 @@
+ are actually connected. */
+ const prompt = searchPrompt(transcript, local.slots?.vertical || view.vertical, platforms)
+ voiceLog(voiceTraceId, 'Voice transcript → backend search prompt', { transcript, prompt, vertical: local.slots?.vertical || view.vertical })
+-const envelope = await send(prompt, { silent: true, voiceTraceId })
++const envelope = await send(prompt, { silent: true, voiceTraceId,
++  requestView: { ...view, vertical: local.slots?.vertical || view.vertical },
++})
+ /* `local`, not a re-derive: every envelope-bearing branch in the panel
+ returns before routeIntent, so the second derivation was dead work —
+ and it ran against the pre-search view, which is now stale. */
+@@ -371,8 +389,14 @@
+ voiceError(voiceTraceId, 'Voice backend/search routing failed', error)
+ issueRequest({ type: 'intent', intent: { ...local, error: error.message }, envelope: null, voiceTraceId })
+ }
+-}, [activeOrder, panelState, platforms, merchantStatuses, hasConnectedMerchant, requestQrLogin, send])
++}, [activeOrder, panelState, platforms, merchantStatuses, hasConnectedMerchant, requestQrLogin, send, loginContinuation.clear, loginContinuation.remember])
+ samsungTranscriptRef.current = handleTranscript
++continuationResumeRef.current = action => {
++  if (action.kind === 'banner') issueRequest(action.request)
++  else if (action.kind === 'voice') {
++    handleTranscript(action.transcript, action.language, action.source, action.voiceTraceId, action.view)
++  }
++}
+ /* "Try again" on the confirmation strip. The panel hands back the request
+ that failed; a request that carried a query re-runs the network call,
+ anything else is simply re-issued with a fresh nonce so the panel routes
+@@ -427,10 +451,10 @@
+ })
+ const samsungVoice = useSamsungVoice({ onTranscript: handleTranscript })
+ const visibleVoice = samsungVoice.phase !== 'idle' || samsungVoice.micError ? samsungVoice : voice
+-const commerceOverlay = qrRequired ? (
++const commerceOverlay = <>
+ <QrLoginPanel
+-ref={commerceRef}
+-open={paneOpen}
++ref={qrRequired ? commerceRef : null}
++open={paneOpen && qrRequired}
+ onClose={closeQrLogin}
+ onRetry={retryQrLogin}
+ sessionId={qrSessionId}
+@@ -441,10 +465,9 @@
+ ready={qrReady}
+ target={qrTarget}
+ />
+-) : (
+ <CommerceSidebar
+-ref={commerceRef}
+-open={paneOpen}
++ref={qrRequired ? null : commerceRef}
++open={paneOpen && !qrRequired}
+ onClose={() => setPaneOpen(false)}
+ sessionId={sessionId}
+ activeOrder={activeOrder}
+@@ -458,7 +481,7 @@
+ onPanelState={setPanelState}
+ onRetryRequest={handleRetryRequest}
+ />
+-)
++</>
+ return (
+ <div className={`app-shell ${isFullscreen ? 'is-fullscreen' : ''}`}>
+ <main className="app-main" onMouseEnter={() => setPeekSidebar(true)} onMouseLeave={() => setPeekSidebar(false)} data-peek={peekSidebar || undefined}>

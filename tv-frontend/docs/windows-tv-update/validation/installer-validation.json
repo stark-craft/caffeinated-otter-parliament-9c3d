@@ -1,0 +1,8 @@
+{
+  "LF_AppMatchesTestedFixture": true,
+  "CRLF_AppMatchesTestedFixture": true,
+  "originalBackupsVerified": true,
+  "panelOnlyTwoHookEdits": true,
+  "incompatibleAppWritesNothing": true,
+  "expectedMismatchMessage": "App edit 4 matched 0 locations. No files changed. Compare App.windows-login-continuation.patch with your current App.jsx."
+}

@@ -1,0 +1,9 @@
+PASS exact milk offer, persistent video, local quantity, explicit provider cart and checkout
+PASS Coca-Cola 1 L skips brand/provider selection and rejects zero/2 L substitutions
+PASS QR-first automatic search after pairing (no merchants)
+PASS QR-first automatic search after pairing (Food only)
+PASS cancelling QR drops the banner target and does not search after a later login
+PASS unavailable exact product has retry, no substitution/picker and no cart mutation
+PASS closed/superseded milk result cannot overwrite the new Coca-Cola review
+PASS late search response stays discarded after closing the panel
+PASS ordinary grocery navigation retains its existing search/result selection flow

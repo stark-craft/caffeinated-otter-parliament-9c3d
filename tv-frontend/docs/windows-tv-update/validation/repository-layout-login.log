@@ -1,0 +1,10 @@
+PASS 1920: same geometry, full panel on first Enter, scroll fallback, repeated Back, Samsung Play/Pause and Space
+PASS 1280: same geometry, full panel on first Enter, scroll fallback, repeated Back, Samsung Play/Pause and Space
+PASS voice juice retains its utterance, waits for Grocery and resumes once into results
+PASS Food voice request survives login with Grocery already connected
+PASS latest voice request replaces the pending milk banner
+PASS cancelling login drops the pending voice; plain Enter has no invented context
+PASS latest utterance replaces the pending Food request and changes its required login
+PASS existing local voice navigation resumes at Milk after pairing without Start Shopping or a backend search
+PASS milk: pairing resumes directly into quantity review without a Start Shopping frame
+PASS cola: pairing resumes directly into quantity review without a Start Shopping frame

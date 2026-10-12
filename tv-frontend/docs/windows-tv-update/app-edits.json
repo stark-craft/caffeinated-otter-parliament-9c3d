@@ -1,0 +1,98 @@
+[
+  {
+    "old": "import { useProductShortcut } from './universalGuide/useProductShortcut.js'",
+    "new": "import { useProductShortcut } from './universalGuide/useProductShortcut.js'\nimport { useLoginContinuation, withGroceryPurchaseContext } from './universalGuide/useLoginContinuation.js'"
+  },
+  {
+    "old": "const samsungTranscriptRef = useRef(null)",
+    "new": "const samsungTranscriptRef = useRef(null)\nconst continuationResumeRef = useRef(null)"
+  },
+  {
+    "old": "const refreshMerchantStatuses = useCallback(async () => {",
+    "new": "const loginContinuation = useLoginContinuation({\npaneOpen,\nready: action => !qrRequired && Boolean(sessionId) && (action.vertical\n  ? verticalUnlocked(merchantStatuses, platforms, action.vertical) : hasConnectedMerchant),\nonResume: action => continuationResumeRef.current?.(action),\n})\nconst refreshMerchantStatuses = useCallback(async () => {"
+  },
+  {
+    "old": "const closeQrLogin = useCallback(() => {",
+    "new": "const closeQrLogin = useCallback(() => {\nloginContinuation.clear()"
+  },
+  {
+    "old": "}, [qrTarget, hasConnectedMerchant])",
+    "new": "}, [qrTarget, hasConnectedMerchant, loginContinuation.clear])"
+  },
+  {
+    "old": "onOpen: () => setPaneOpen(true),\n})",
+    "new": "onOpen: () => setPaneOpen(true),\nloginContinuation,\n})"
+  },
+  {
+    "old": "incomingTraceId = null) => {\nconst voiceTraceId = incomingTraceId || newVoiceTrace(source)",
+    "new": "incomingTraceId = null, resumeView = null) => {\nconst voiceTraceId = incomingTraceId || newVoiceTrace(source)\nloginContinuation.clear()"
+  },
+  {
+    "old": "const view = buildView({ ...(panelState || {}), activeOrder })\nvoiceLog(voiceTraceId, 'Current view snapshot for voice routing', view)",
+    "new": "const view = resumeView || buildView({ ...(panelState || {}), activeOrder })\nconst deferVoice = vertical => {\n  loginContinuation.remember({ kind: 'voice', transcript, language, source, voiceTraceId, view, vertical })\n  requestQrLogin(vertical)\n}\nvoiceLog(voiceTraceId, 'Current view snapshot for voice routing', view)"
+  },
+  {
+    "old": "if (voiceCommand) {\n  if (!hasConnectedMerchant)",
+    "new": "if (voiceCommand) {\n  const requestedVertical = ['home', 'track'].includes(voiceCommand.type) ? null\n    : voiceCommand.type.startsWith('grocery') ? 'grocery' : 'food'\n  if (!hasConnectedMerchant)"
+  },
+  {
+    "old": "    setPaneOpen(true); return\n  }\n  const requestedVertical = voiceCommand.type.startsWith('grocery') ? 'grocery' : 'food'",
+    "new": "    deferVoice(requestedVertical); return\n  }"
+  },
+  {
+    "old": "voiceWarn(voiceTraceId, 'Voice navigation blocked: vertical locked; opening QR panel', { requestedVertical, command: voiceCommand })\n    requestQrLogin(requestedVertical)\n    return",
+    "new": "voiceWarn(voiceTraceId, 'Voice navigation blocked: vertical locked; opening QR panel', { requestedVertical, command: voiceCommand })\n    deferVoice(requestedVertical)\n    return"
+  },
+  {
+    "old": "const local = deriveIntent(transcript, { ...view, language }, null)",
+    "new": "const local = withGroceryPurchaseContext(transcript, deriveIntent(transcript, { ...view, language }, null))\nconst requestedVertical = local.slots?.vertical === 'grocery' ? 'grocery' : 'food'"
+  },
+  {
+    "old": "setPaneOpen(true)\nreturn\n}\nconst requestedVertical = local.slots?.vertical === 'grocery' ? 'grocery' : 'food'",
+    "new": "deferVoice(requestedVertical)\nreturn\n}"
+  },
+  {
+    "old": "requestQrLogin(requestedVertical)\nreturn",
+    "new": "deferVoice(requestedVertical)\nreturn"
+  },
+  {
+    "old": "}, [activeOrder, panelState, platforms, merchantStatuses, hasConnectedMerchant, requestQrLogin, send])",
+    "new": "}, [activeOrder, panelState, platforms, merchantStatuses, hasConnectedMerchant, requestQrLogin, send, loginContinuation.clear, loginContinuation.remember])"
+  },
+  {
+    "old": "samsungTranscriptRef.current = handleTranscript",
+    "new": "samsungTranscriptRef.current = handleTranscript\ncontinuationResumeRef.current = action => {\n  if (action.kind === 'banner') issueRequest(action.request)\n  else if (action.kind === 'voice') {\n    handleTranscript(action.transcript, action.language, action.source, action.voiceTraceId, action.view)\n  }\n}"
+  },
+  {
+    "old": "silent = false, voiceTraceId = null } = {})",
+    "new": "silent = false, voiceTraceId = null, requestView = null } = {})"
+  },
+  {
+    "old": "const view = buildView({ ...(panelState || {}), activeOrder })\nif (voiceTraceId) voiceLog(voiceTraceId, 'Frontend",
+    "new": "const view = requestView || buildView({ ...(panelState || {}), activeOrder })\nif (voiceTraceId) voiceLog(voiceTraceId, 'Frontend"
+  },
+  {
+    "old": "const envelope = await send(prompt, { silent: true, voiceTraceId })",
+    "new": "const envelope = await send(prompt, { silent: true, voiceTraceId,\n  requestView: { ...view, vertical: local.slots?.vertical || view.vertical },\n})"
+  },
+  {
+    "old": "const commerceOverlay = qrRequired ? (\n<QrLoginPanel",
+    "new": "const commerceOverlay = <>\n<QrLoginPanel"
+  },
+  {
+    "old": "<QrLoginPanel\nref={commerceRef}\nopen={paneOpen}",
+    "new": "<QrLoginPanel\nref={qrRequired ? commerceRef : null}\nopen={paneOpen && qrRequired}"
+  },
+  {
+    "old": "/>\n) : (\n<CommerceSidebar",
+    "new": "/>\n<CommerceSidebar"
+  },
+  {
+    "old": "<CommerceSidebar\nref={commerceRef}\nopen={paneOpen}",
+    "new": "<CommerceSidebar\nref={qrRequired ? null : commerceRef}\nopen={paneOpen && !qrRequired}"
+  },
+  {
+    "old": "/>\n)\nreturn (",
+    "new": "/>\n</>\nreturn ("
+  }
+]
