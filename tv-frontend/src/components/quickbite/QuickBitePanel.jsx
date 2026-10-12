@@ -5098,7 +5098,7 @@ const QuickBitePanel = forwardRef(
           open
             ? 'is-open'
             : ''
-        }`}
+        } ${confirmStrip ? 'has-confirmation' : ''}`}
         aria-hidden={!open}
         inert={!open}
         aria-label="QuickBite food ordering"
