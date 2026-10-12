@@ -554,7 +554,10 @@ const QuickBitePanel = forwardRef(
         // A remote with no focusable key is a dead end: this is the one
         // key that leaves a stocked basket.
         if (screen === 'gbasket') {
-          return ['gbasket-cart']
+          return [
+            ...(stockedBasket?.lines || []).map((_, index) => `gbasket-item-${index}`),
+            'gbasket-cart',
+          ]
         }
         if (screen === 'greview') {
           if (loadingPhase === 'products') return []
@@ -695,7 +698,7 @@ const QuickBitePanel = forwardRef(
     // The heading is an explicit remote stop, so a user moving back up a
     // long response can read the answer above the first card.
     const contentKeys = useMemo(() => (
-      screen === 'home' || screen === 'gbasket' ||
+      screen === 'home' ||
         (NEW_SCREENS.includes(screen) && loadingPhase === 'agent')
         ? screenKeys : ['screen-heading', ...screenKeys]
     ), [screen, loadingPhase, screenKeys])
@@ -3401,11 +3404,14 @@ const QuickBitePanel = forwardRef(
       if (!b) return null
       return (
         <div className="qb-screen qb-gbasket">
-          <h2 className="qb-title">{b.label}</h2>
-          <p className="qb-sub">
-            {b.stocked} of {b.lines.length + b.cut.length} added
-            {b.platform ? ` · ${b.platform}` : ''}
-          </p>
+          <div className={`qb-screen-heading ${focusKey === 'screen-heading' ? 'is-focused' : ''}`}
+            {...focusableProps('screen-heading')}>
+            <h2 className="qb-title">{b.label}</h2>
+            <p className="qb-sub">
+              {b.stocked} of {b.lines.length + b.cut.length} added
+              {b.platform ? ` · ${b.platform}` : ''}
+            </p>
+          </div>
           <ul className="qb-basket-cards">
             {b.lines.map((l, i) => {
               const missing = l.status === 'unavailable' || !l.name
@@ -3414,7 +3420,8 @@ const QuickBitePanel = forwardRef(
                 : 0
               return (
                 <li key={`${l.query}-${i}`}
-                    className={'qb-basket-card' + (missing ? ' missing' : '')}>
+                    className={`qb-basket-card${missing ? ' missing' : ''}${focusKey === `gbasket-item-${i}` ? ' is-focused' : ''}`}
+                    {...focusableProps(`gbasket-item-${i}`)}>
                   <Media
                     src={l.image_url}
                     fallback="🛒"
