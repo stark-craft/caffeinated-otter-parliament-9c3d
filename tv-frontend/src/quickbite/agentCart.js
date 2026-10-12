@@ -33,8 +33,8 @@ export function normalizeAgentCart(envelope) {
     unavailable: (stocked ? payload.cut?.length || 0 : 0) + items.length - lines.length }
 }
 
-// Draft edits never mutate a backend cart or initiate checkout. The current
-// contract does not explicitly define quantity zero as removal: keep minimum 1.
+// Draft edits do not mutate a provider until Review Cart. A zero quantity
+// removes a local row and records its exact provider-cart deletion request.
 // Reaching zero removes a draft row. Keep a tombstone so Review Cart sends
 // an explicit provider removal instead of silently forgetting a real item.
 export function editAgentCartQuantity(model, index, delta) {
