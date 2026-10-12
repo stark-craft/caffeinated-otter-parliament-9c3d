@@ -552,31 +552,33 @@ async function widgetRace(browser) {
 
 async function quickPromptScenarios(browser) {
   const cases = [
-    { index: 0, fragment: '1 kg chicken biryani', screen: 'agent-cart', vertical: 'grocery' },
-    { index: 1, fragment: '1 kg kimchi', screen: 'agent-cart', vertical: 'grocery' },
-    { index: 2, fragment: 'pizza restaurants on Zomato', screen: 'restaurant', vertical: 'food' },
-    { index: 3, fragment: 'Haldiram on Zomato', screen: 'restaurant', vertical: 'food' },
+    { index: 0, fragment: '1 kg kimchi', provider: 'Zepto', vertical: 'grocery', screen: 'agent-cart' },
+    { index: 1, fragment: '1 kg chicken biryani', provider: 'Zepto', vertical: 'grocery', screen: 'agent-cart' },
+    { index: 2, fragment: '1 kg vegetable biryani', provider: 'Swiggy Instamart', vertical: 'grocery', screen: 'agent-cart' },
+    { index: 3, fragment: 'poha for two people', provider: 'Swiggy Instamart', vertical: 'grocery', screen: 'agent-cart' },
+    { index: 4, fragment: 'pizza restaurants on Zomato', provider: 'Zomato', vertical: 'food', screen: 'restaurant' },
+    { index: 5, fragment: 'pav bhaji restaurants on Zomato', provider: 'Zomato', vertical: 'food', screen: 'restaurant' },
+    { index: 6, fragment: 'chicken biryani restaurants on Swiggy Food', provider: 'Swiggy Food', vertical: 'food', screen: 'restaurant' },
+    { index: 7, fragment: 'masala dosa restaurants on Swiggy Food', provider: 'Swiggy Food', vertical: 'food', screen: 'restaurant' },
   ]
   for (const scenario of cases) {
     const f = await fixture(browser, request => {
-      if (/ingredients/i.test(request.message)) {
-        return { widget: 'basket_stocked', payload: { platform: 'Zepto',
-          lines: [{ name: 'Cabbage', count: 1, line_total: 30, status: 'stocked' }], cut: [] } }
-      }
-      return result('zomato')
+      if (scenario.vertical === 'grocery')
+        return { widget: 'basket_stocked', payload: { platform: scenario.provider,
+          lines: [{ name: 'Rice', count: 1, line_total: 30, status: 'stocked' }], cut: [] } }
+      return result(scenario.provider === 'Zomato' ? 'zomato' : 'swiggy_food')
     })
     try {
       await f.page.keyboard.press('Enter')
       await f.click('start-shopping')
       await f.waitScreen('mode')
-      const key = `quick-prompt-${scenario.index}`
-      await f.click(key)
+      await f.click(`quick-prompt-${scenario.index}`)
       await f.waitScreen(scenario.screen)
-      assert.equal(f.state.requests.length, 1, 'a single Quick Prompt should submit only one live chat request')
+      assert.equal(f.state.requests.length, 1, 'one quick prompt submits one chat request')
       assert.ok(f.state.requests[0].message.includes(scenario.fragment), scenario.fragment)
       assert.equal(f.state.requests[0].view.vertical, scenario.vertical)
       assert.equal(f.state.requests[0].view.screen, 'home')
-      console.log(`PASS Quick Prompt ${scenario.index + 1}: same transcript-to-chat route without STT`)
+      console.log(`PASS Quick Prompt ${scenario.index + 1}: ${scenario.provider} via /api/chat, no STT`)
     } finally { await f.finish() }
   }
 }
