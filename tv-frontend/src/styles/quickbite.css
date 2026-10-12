@@ -241,3 +241,24 @@
   box-shadow: 0 0 0 3px rgba(255,122,0,.18);
   transform: none;
 }
+
+
+/* Only the confirmation option retains a focus ring. The review remains
+   visible beneath the modal, but cannot look like a second active surface. */
+.qb-panel.has-confirmation .qb-screen,
+.qb-panel.has-confirmation .qb-bottom-nav {
+  filter: blur(4px);
+  opacity: .46;
+  pointer-events: none;
+}
+.qb-panel.has-confirmation .qb-screen .is-focused,
+.qb-panel.has-confirmation .qb-bottom-nav .is-focused {
+  box-shadow: none !important;
+  outline: none !important;
+  border-color: transparent !important;
+  transform: none !important;
+}
+.qb-panel.has-confirmation .qb-screen .qb-primary-button.is-focused,
+.qb-panel.has-confirmation .qb-screen .qb-secondary-button.is-focused {
+  background: var(--qb-bg-card) !important;
+}
