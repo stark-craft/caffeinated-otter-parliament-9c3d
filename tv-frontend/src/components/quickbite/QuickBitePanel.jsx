@@ -43,6 +43,7 @@ import BasketCompareScreen from './screens/BasketCompareScreen.jsx'
 import SpendScreen from './screens/SpendScreen.jsx'
 import { GROCERY_CATEGORIES, GROCERY_PRODUCTS } from '../../quickbite/groceryCatalog.js'
 import { GROCERY_SHORTCUTS, groceryShortcutRequest, groceryShortcutPrompt, firstMatchingGroceryOffer, isRepeatedResultSummary } from '../../quickbite/groceryShortcut.js'
+import { QUICK_PROMPTS, quickPromptAt, modeFocusAfterArrow } from '../../quickbite/quickPrompts.js'
 import { HOME_BACKDROP, MODE_TILES } from '../../quickbite/heroArt.js'
 import { confirmedCodCheckout, orderPlatform, paymentMethodFromEnvelope, paymentPresentation } from '../../quickbite/payMode.js'
 import { voiceError, voiceLog, voiceWarn } from '../../quickbite/voiceDiagnostics.js'
@@ -327,6 +328,7 @@ const QuickBitePanel = forwardRef(
       trackingState,
       onPanelState,
       onRetryRequest,
+      onQuickPrompt,
     },
     ref,
   ) {
@@ -334,6 +336,7 @@ const QuickBitePanel = forwardRef(
     const handleKeyRef = useRef(null)
     const lastVoiceTraceRef = useRef(null)
     const checkoutInFlightRef = useRef(false)
+    const quickPromptInFlightRef = useRef(false)
     const widgetModelsRef = useRef({})
     const journeyEpochRef = useRef(0)
     const widgetActionRef = useRef(null)
@@ -530,7 +533,7 @@ const QuickBitePanel = forwardRef(
           return ['start-shopping']
         }
         if (screen === 'mode') {
-          return ['mode-food', 'mode-grocery']
+          return ['mode-food', 'mode-grocery', ...QUICK_PROMPTS.map((_, index) => `quick-prompt-${index}`)]
         }
         if (screen === 'gcategory') {
           return GROCERY_CATEGORIES.map((_, index) => `gcategory-${index}`)
@@ -2316,7 +2319,27 @@ const QuickBitePanel = forwardRef(
         await openPlatformCart(cartPlatformName)
       }
     }
+    async function runQuickPrompt(index) {
+      const scenario = quickPromptAt(index)
+      if (!scenario || quickPromptInFlightRef.current) return
+      if (!onQuickPrompt) {
+        setNotice('Quick prompts are unavailable. Try again from the connected app.')
+        return
+      }
+      quickPromptInFlightRef.current = true
+      setNotice('')
+      try {
+        // App.handleTranscript does all the real voice routing after STT.
+        // Calling it with typed-in script text skips only microphone/STT.
+        await onQuickPrompt(scenario.prompt)
+      } catch (error) {
+        setNotice(error?.message || 'Unable to start the Quick Prompt.')
+      } finally {
+        quickPromptInFlightRef.current = false
+      }
+    }
     function activate(key) {
+      if (key.startsWith('quick-prompt-')) return runQuickPrompt(trailingIndex(key))
       if (key === 'reconnect-provider' && widgetModel?.reconnectProvider) {
         const selected = PROVIDERS[widgetModel.reconnectProvider]
         return onRequestLogin?.(selected.vertical, widgetModel.reconnectProvider)
@@ -2627,16 +2650,9 @@ const QuickBitePanel = forwardRef(
         const next = editableCartFocusAfterArrow(focusKey, key, widgetModel.lines.length)
         if (next) { setFocusKey(next); return }
       }
-      if (screen === 'mode' && focusKey.startsWith('mode-') && (key === 'ArrowLeft' || key === 'ArrowRight')) {
-        setFocusKey(focusKey === 'mode-food' ? 'mode-grocery' : 'mode-food')
-        return
-      }
-      if (screen === 'mode' && focusKey.startsWith('mode-') && key === 'ArrowDown') {
-        setFocusKey('back')
-        return
-      }
-      if (screen === 'mode' && focusKey.startsWith('mode-') && key === 'ArrowUp') {
-        return
+      if (screen === 'mode') {
+        const next = modeFocusAfterArrow(focusKey, key)
+        if (next) { setFocusKey(next); return }
       }
       if (screen === 'gcategory' && focusKey.startsWith('gcategory-')) {
         const index = trailingIndex(focusKey)
@@ -3178,6 +3194,32 @@ const QuickBitePanel = forwardRef(
               </button>
             ))}
           </div>
+          <section className="qb-quick-prompts" aria-label="Quick prompts">
+            <div className="qb-quick-prompts-header">
+              <h2>Quick prompts</h2>
+              <span>Try a scenario without speaking</span>
+            </div>
+            <div className="qb-quick-prompts-list">
+              {QUICK_PROMPTS.map((scenario, index) => {
+                const key = `quick-prompt-${index}`
+                return (
+                  <button
+                    key={scenario.id}
+                    type="button"
+                    className={`qb-quick-prompt ${focusKey === key ? 'is-focused' : ''}`}
+                    {...focusableProps(key)}
+                  >
+                    <span className="qb-quick-prompt-tag">{scenario.category}</span>
+                    <span className="qb-quick-prompt-copy">
+                      <strong>{scenario.title}</strong>
+                      <small>{scenario.description}</small>
+                    </span>
+                    <span className="qb-quick-prompt-arrow" aria-hidden="true">→</span>
+                  </button>
+                )
+              })}
+            </div>
+          </section>
         </>
       )
     }
