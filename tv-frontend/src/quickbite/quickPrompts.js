@@ -1,37 +1,45 @@
-// Fixed demo scenarios use exactly the same transcript->intent->/api/chat
-// pipeline as real speech. They never call STT and never fabricate results.
+// Live demo transcripts: same /api/chat pipeline as STT, without the mic.
+// Provider labels are explicit so no other provider may substitute silently.
 export const QUICK_PROMPTS = Object.freeze([
   {
-    id: 'chicken-biryani',
-    vertical: 'grocery',
-    category: 'Grocery',
-    title: '1 kg chicken biryani',
-    description: 'Build an ingredient basket',
-    prompt: 'I want to make 1 kg chicken biryani. Find all the ingredients and quantities I need and add them to my grocery cart.',
+    id: 'kimchi-zepto', vertical: 'grocery', category: 'Zepto',
+    title: '1 kg kimchi', description: 'Ingredients from Zepto',
+    prompt: 'I want to make 1 kg kimchi. Find the ingredients and quantities from Zepto and add them to my Zepto grocery cart.',
   },
   {
-    id: 'kimchi',
-    vertical: 'grocery',
-    category: 'Grocery',
-    title: '1 kg kimchi',
-    description: 'Build an ingredient basket',
-    prompt: 'I want to make 1 kg kimchi. Find all the ingredients and quantities I need and add them to my grocery cart.',
+    id: 'chicken-biryani-zepto', vertical: 'grocery', category: 'Zepto',
+    title: '1 kg chicken biryani', description: 'Ingredients from Zepto',
+    prompt: 'I want to make 1 kg chicken biryani. Find the ingredients and quantities from Zepto and add them to my Zepto grocery cart.',
   },
   {
-    id: 'pizza-zomato',
-    vertical: 'food',
-    category: 'Food · Zomato',
-    title: 'Pizza near me',
-    description: 'Find Zomato restaurants',
-    prompt: 'Find pizza restaurants on Zomato near me and show me options to choose from.',
+    id: 'veg-biryani-instamart', vertical: 'grocery', category: 'Instamart',
+    title: '1 kg veg biryani', description: 'Ingredients from Instamart',
+    prompt: 'I want to make 1 kg vegetable biryani. Find the ingredients and quantities from Swiggy Instamart and add them to my Swiggy Instamart grocery cart.',
   },
   {
-    id: 'pav-bhaji-haldiram',
-    vertical: 'food',
-    category: 'Food · Zomato',
-    title: 'Pav bhaji at Haldiram',
-    description: 'Open the restaurant menu',
-    prompt: "Find Haldiram on Zomato and show pav bhaji options from that restaurant's menu.",
+    id: 'poha-instamart', vertical: 'grocery', category: 'Instamart',
+    title: 'Poha ingredients', description: 'Breakfast basket from Instamart',
+    prompt: 'I want to make poha for two people. Find the ingredients and quantities from Swiggy Instamart and add them to my Swiggy Instamart grocery cart.',
+  },
+  {
+    id: 'pizza-zomato', vertical: 'food', category: 'Zomato',
+    title: 'Pizza near me', description: 'Find pizza restaurants',
+    prompt: 'Find pizza restaurants on Zomato near me and show available choices.',
+  },
+  {
+    id: 'pav-bhaji-zomato', vertical: 'food', category: 'Zomato',
+    title: 'Pav bhaji', description: 'Find pav bhaji restaurants',
+    prompt: 'Find pav bhaji restaurants on Zomato near me and show available choices.',
+  },
+  {
+    id: 'biryani-swiggy', vertical: 'food', category: 'Swiggy Food',
+    title: 'Chicken biryani', description: 'Find biryani restaurants',
+    prompt: 'Find chicken biryani restaurants on Swiggy Food near me and show available choices.',
+  },
+  {
+    id: 'dosa-swiggy', vertical: 'food', category: 'Swiggy Food',
+    title: 'Masala dosa', description: 'Find dosa restaurants',
+    prompt: 'Find masala dosa restaurants on Swiggy Food near me and show available choices.',
   },
 ])
 
@@ -40,16 +48,17 @@ export function quickPromptAt(index) {
     ? QUICK_PROMPTS[index] : null
 }
 
-// Remote navigation on the mode screen: two tiles at the top, then a simple
-// up/down list of four prompts. Up from Back returns to the last prompt.
 export function modeFocusAfterArrow(focus, key) {
   if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) return null
+  if (focus === 'screen-heading') {
+    if (key === 'ArrowDown') return 'mode-food'
+    return focus
+  }
   if (focus === 'mode-food' || focus === 'mode-grocery') {
-    if (key === 'ArrowLeft' || key === 'ArrowRight') {
+    if (key === 'ArrowLeft' || key === 'ArrowRight')
       return focus === 'mode-food' ? 'mode-grocery' : 'mode-food'
-    }
     if (key === 'ArrowDown') return 'quick-prompt-0'
-    if (key === 'ArrowUp') return focus
+    if (key === 'ArrowUp') return 'screen-heading'
   }
   const match = String(focus).match(/^quick-prompt-(\d+)$/)
   if (match) {
