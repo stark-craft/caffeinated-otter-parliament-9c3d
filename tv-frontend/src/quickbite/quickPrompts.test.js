@@ -5,13 +5,14 @@ import { deriveIntent } from './deriveIntent.js'
 import { findVoiceCommand } from './voiceNavigation.js'
 import { buildView } from './viewContext.js'
 
-test('exactly four quick prompts cover both recipe baskets and both Zomato journeys', () => {
-  assert.equal(QUICK_PROMPTS.length, 4)
+test('eight Quick Prompts cover two real-provider scenarios each', () => {
+  assert.equal(QUICK_PROMPTS.length, 8)
   assert.deepEqual(QUICK_PROMPTS.map(({ id }) => id),
-    ['chicken-biryani', 'kimchi', 'pizza-zomato', 'pav-bhaji-haldiram'])
+    ['kimchi-zepto', 'chicken-biryani-zepto', 'veg-biryani-instamart', 'poha-instamart',
+      'pizza-zomato', 'pav-bhaji-zomato', 'biryani-swiggy', 'dosa-swiggy'])
   assert.equal(new Set(QUICK_PROMPTS.map(({ id }) => id)).size, 4)
   assert.equal(quickPromptAt(-1), null)
-  assert.equal(quickPromptAt(4), null)
+  assert.equal(quickPromptAt(8), null)
 })
 
 test('quick prompts enter the actual backend search intent, not local-only cards or STT', () => {
@@ -21,11 +22,10 @@ test('quick prompts enter the actual backend search intent, not local-only cards
     const intent = deriveIntent(prompt.prompt, view)
     assert.equal(intent.name, 'search', prompt.id)
     assert.equal(intent.slots.vertical, prompt.vertical, prompt.id)
-    if (prompt.vertical === 'food') {
-      assert.deepEqual(intent.slots.providers, ['zomato'], prompt.id)
-    } else {
-      assert.deepEqual(intent.slots.providers, [], prompt.id)
-    }
+    const expected = prompt.id.endsWith('zepto') ? 'zepto'
+      : prompt.id.endsWith('instamart') ? 'swiggy_instamart'
+      : prompt.id.endsWith('zomato') ? 'zomato' : 'swiggy_food'
+    assert.deepEqual(intent.slots.providers, [expected], prompt.id)
   }
 })
 
@@ -38,7 +38,9 @@ test('mode remote focuses tiles, then all four prompts, then Back', () => {
     assert.equal(modeFocusAfterArrow(`quick-prompt-${i + 1}`, 'ArrowUp'), `quick-prompt-${i}`)
   }
   assert.equal(modeFocusAfterArrow('quick-prompt-0', 'ArrowUp'), 'mode-food')
-  assert.equal(modeFocusAfterArrow('quick-prompt-3', 'ArrowDown'), 'back')
-  assert.equal(modeFocusAfterArrow('back', 'ArrowUp'), 'quick-prompt-3')
+  assert.equal(modeFocusAfterArrow('quick-prompt-7', 'ArrowDown'), 'back')
+  assert.equal(modeFocusAfterArrow('back', 'ArrowUp'), 'quick-prompt-7')
   assert.equal(modeFocusAfterArrow('quick-prompt-1', 'ArrowRight'), 'quick-prompt-1')
+  assert.equal(modeFocusAfterArrow('mode-food', 'ArrowUp'), 'screen-heading')
+  assert.equal(modeFocusAfterArrow('screen-heading', 'ArrowDown'), 'mode-food')
 })
