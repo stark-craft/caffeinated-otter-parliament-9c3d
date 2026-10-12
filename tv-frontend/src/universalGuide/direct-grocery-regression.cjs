@@ -209,5 +209,15 @@ async function fixture(browser, handler, options = {}) {
       await f.finish()
       console.log('PASS text-only repeat does not misreport product availability or retry forever')
     }
+    {
+      const f = await fixture(browser, async () => result([milk]))
+      await f.page.getByRole('button', { name: 'Now Playing — open video view' }).click()
+      await f.page.locator('.ug-player.ug-video-view').waitFor()
+      await f.page.keyboard.press('Backspace')
+      await f.page.locator('.ug-player:not(.ug-video-view)').waitFor()
+      await f.page.locator('.ug-home:not([inert])').waitFor()
+      await f.finish()
+      console.log('PASS Samsung remote Back returns video view to dummy home when commerce is closed')
+    }
   } finally { await browser.close() }
 })().catch(error => { console.error(error); process.exitCode = 1 })
