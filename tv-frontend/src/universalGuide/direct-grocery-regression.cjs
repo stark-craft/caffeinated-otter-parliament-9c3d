@@ -180,5 +180,34 @@ async function fixture(browser, handler, options = {}) {
       await f.finish()
       console.log('PASS ordinary grocery navigation retains its existing search/result selection flow')
     }
+    {
+      // First lookup structured; the next click gets the backend's remembered
+      // "same results" text, so the panel may do one search-only recheck.
+      const f = await fixture(browser, async (_, state) => state.chats.length === 2
+        ? { widget: 'text', text: 'Same fresh results — no changes:',
+            payload: { title: 'Same fresh results — no changes:', actions: [] }, actions: [] }
+        : result([milk]))
+      await f.hero('milk'); await f.review(milk.name)
+      await f.click('exit'); await f.hero('milk'); await f.review(milk.name)
+      assert.equal(f.state.chats.length, 3)
+      assert.notEqual(f.state.chats[0].message, f.state.chats[1].message,
+        'each new banner click must identify a fresh discovery')
+      assert.match(f.state.chats[2].message, /recheck/u)
+      await f.finish()
+      console.log('PASS repeat banner text summary receives bounded structured search recovery')
+    }
+    {
+      // No structured offers after the bounded recheck: show an accurate
+      // error, not the incorrect claim that the product is out of stock.
+      const f = await fixture(browser, async () => ({
+        widget: 'text', text: 'Same fresh results — no changes:',
+        payload: { title: 'Same fresh results — no changes:', actions: [] }, actions: [],
+      }))
+      await f.hero('milk')
+      await f.page.getByRole('alert').filter({ hasText: 'text summary' }).waitFor()
+      assert.equal(f.state.chats.length, 2, 'no infinite retry loop')
+      await f.finish()
+      console.log('PASS text-only repeat does not misreport product availability or retry forever')
+    }
   } finally { await browser.close() }
 })().catch(error => { console.error(error); process.exitCode = 1 })
