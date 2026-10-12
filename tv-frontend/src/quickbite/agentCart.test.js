@@ -41,7 +41,7 @@ test('bare Swiggy is Instamart only when grocery metadata or the actual server e
   assert.equal(food.editable, false)
 })
 
-test('draft quantity changes target one row, preserve input and never fall below one', () => {
+test('draft quantity changes target one row and zero removes the draft card', () => {
   const model = screenForEnvelope(stocked).model
   const edited = editAgentCartQuantity(model, 1, 1)
   assert.deepEqual(model.lines.map(line => line.quantity), [2,2])
@@ -51,8 +51,18 @@ test('draft quantity changes target one row, preserve input and never fall below
   const reverted = editAgentCartQuantity(edited, 1, -1)
   assert.equal(reverted.dirty, false)
   assert.equal(agentCartDisplayTotal(reverted), 100)
-  const minimum = editAgentCartQuantity(editAgentCartQuantity(model, 0, -1), 0, -1)
-  assert.equal(minimum.lines[0].quantity, 1)
+  const one = editAgentCartQuantity(model, 0, -1)
+  assert.equal(one.lines[0].quantity, 1)
+  const removed = editAgentCartQuantity(one, 0, -1)
+  assert.deepEqual(removed.lines.map(line => line.name), ['Rice'])
+  assert.equal(removed.removedLines[0].name, 'Cabbage')
+  assert.equal(removed.dirty, true)
+  assert.match(agentCartEditPrompt(removed), /Remove "Cabbage \(1 kg\)" completely/)
+  const allRemoved = editAgentCartQuantity(editAgentCartQuantity(removed, 0, -1), 0, -1)
+  assert.equal(allRemoved.lines.length, 0)
+  assert.equal(allRemoved.removedLines.length, 2)
+  assert.deepEqual(focusKeysFor('agent-cart', allRemoved), ['acart-checkout', 'acart-clear'])
+  assert.equal(agentCartDisplayTotal(allRemoved), 0)
   assert.equal(editAgentCartQuantity(model, 99, 1), model)
 })
 
