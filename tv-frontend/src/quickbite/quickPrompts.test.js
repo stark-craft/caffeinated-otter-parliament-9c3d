@@ -10,7 +10,7 @@ test('eight Quick Prompts cover two real-provider scenarios each', () => {
   assert.deepEqual(QUICK_PROMPTS.map(({ id }) => id),
     ['kimchi-zepto', 'chicken-biryani-zepto', 'veg-biryani-instamart', 'poha-instamart',
       'pizza-zomato', 'pav-bhaji-zomato', 'biryani-swiggy', 'dosa-swiggy'])
-  assert.equal(new Set(QUICK_PROMPTS.map(({ id }) => id)).size, 4)
+  assert.equal(new Set(QUICK_PROMPTS.map(({ id }) => id)).size, 8)
   assert.equal(quickPromptAt(-1), null)
   assert.equal(quickPromptAt(8), null)
 })
@@ -29,7 +29,7 @@ test('quick prompts enter the actual backend search intent, not local-only cards
   }
 })
 
-test('mode remote focuses tiles, then all four prompts, then Back', () => {
+test('mode remote focuses tiles, then all eight prompts, then Back', () => {
   assert.equal(modeFocusAfterArrow('mode-food', 'ArrowRight'), 'mode-grocery')
   assert.equal(modeFocusAfterArrow('mode-grocery', 'ArrowLeft'), 'mode-food')
   assert.equal(modeFocusAfterArrow('mode-food', 'ArrowDown'), 'quick-prompt-0')
