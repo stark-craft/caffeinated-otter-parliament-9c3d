@@ -695,7 +695,8 @@ const QuickBitePanel = forwardRef(
     // The heading is an explicit remote stop, so a user moving back up a
     // long response can read the answer above the first card.
     const contentKeys = useMemo(() => (
-      screen === 'home' || (NEW_SCREENS.includes(screen) && loadingPhase === 'agent')
+      screen === 'home' || screen === 'gbasket' ||
+        (NEW_SCREENS.includes(screen) && loadingPhase === 'agent')
         ? screenKeys : ['screen-heading', ...screenKeys]
     ), [screen, loadingPhase, screenKeys])
     useLayoutEffect(() => {
@@ -2679,6 +2680,7 @@ const QuickBitePanel = forwardRef(
       }
       if (screen === 'gcategory' && focusKey.startsWith('gcategory-')) {
         const index = trailingIndex(focusKey)
+        if (key === 'ArrowUp' && index < 2) { setFocusKey('screen-heading'); return }
         let next = index
         if (key === 'ArrowLeft' && index % 2 === 1) next -= 1
         if (key === 'ArrowRight' && index % 2 === 0) next += 1
@@ -2723,6 +2725,7 @@ const QuickBitePanel = forwardRef(
           }
         }
         if (next === index && key === 'ArrowDown') setFocusKey('back')
+        else if (next === index && key === 'ArrowUp') setFocusKey('screen-heading')
         else setFocusKey(`gresult-${next}`)
         return
       }
@@ -2732,6 +2735,7 @@ const QuickBitePanel = forwardRef(
        */
       if (screen === 'greview') {
         if (focusKey === 'gqty-minus') {
+          if (key === 'ArrowUp') { setFocusKey('screen-heading'); return }
           if (key === 'ArrowRight') {
             setFocusKey('gqty-plus')
           } else if (key === 'ArrowDown') {
@@ -2740,6 +2744,7 @@ const QuickBitePanel = forwardRef(
           return
         }
         if (focusKey === 'gqty-plus') {
+          if (key === 'ArrowUp') { setFocusKey('screen-heading'); return }
           if (key === 'ArrowLeft' && quantity > 1) {
             setFocusKey('gqty-minus')
           } else if (key === 'ArrowDown') {
@@ -2773,6 +2778,7 @@ const QuickBitePanel = forwardRef(
           trailingIndex(
             focusKey,
           )
+        if (key === 'ArrowUp' && index < 2) { setFocusKey('screen-heading'); return }
         let next = index
         if (
           key ===
@@ -2880,19 +2886,9 @@ const QuickBitePanel = forwardRef(
               index + delta,
             ),
           )
-        if (
-          next === index &&
-          key ===
-          'ArrowDown'
-        ) {
-          setFocusKey(
-            'back',
-          )
-        } else {
-          setFocusKey(
-            `restaurant-${next}`,
-          )
-        }
+        if (next === index && key === 'ArrowDown') setFocusKey('back')
+        else if (next === index && key === 'ArrowUp') setFocusKey('screen-heading')
+        else setFocusKey(`restaurant-${next}`)
         return
       }
       /*
@@ -2912,7 +2908,7 @@ const QuickBitePanel = forwardRef(
                 selectedVariantIndex,
                 selectedItem.variants.length - 1,
               )}`
-            : focusKey
+            : 'screen-heading'
         if (
           focusKey ===
           'qty-minus'
