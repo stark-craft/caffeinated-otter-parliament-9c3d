@@ -394,7 +394,7 @@ async function editableCarts(browser) {
   for (const variant of ['Zepto stocked', 'Swiggy stocked', 'Swiggy grocery cart']) {
     const platform = variant.startsWith('Zepto') ? 'Zepto' : 'Swiggy';
     const label = platform === 'Zepto' ? 'Zepto' : 'Swiggy Instamart';
-    let mutations = 0, cancellations = 0, orders = 0, riceQuantity = 2;
+    let mutations = 0, cancellations = 0, orders = 0, riceQuantity = 2, emptied = false;
     let release;
     const hold = new Promise(resolve => { release = resolve; });
     const f = await fixture(browser, async request => {
@@ -408,12 +408,16 @@ async function editableCarts(browser) {
         riceQuantity = 3;
         return groceryCart(platform, riceQuantity);
       }
-      if (request.message === 'No, cancel') {
+      if (request.message.startsWith('Clear the current')) {
         cancellations++;
-        return { widget: 'cart', payload: { kind: 'grocery', platform, total: 0, items: [] } };
+        emptied = true;
+        return { widget: 'text', text: 'Clear accepted. Verify the provider cart.' };
       }
+      if (request.message === 'No, cancel') return groceryCart(platform, riceQuantity);
       if (request.message === 'Yes, place the order') { orders++; throw new Error('Editor must not place an order'); }
-      if (request.message.startsWith('Show my current')) return groceryCart(platform, riceQuantity);
+      if (request.message.startsWith('Show my current')) return emptied
+        ? { widget: 'cart', payload: { kind: 'grocery', platform, total: 0, items: [] } }
+        : groceryCart(platform, riceQuantity);
       if (variant.endsWith('cart')) return groceryCart(platform);
       return { widget: 'basket_stocked', payload: { platform, total: 100, label: 'Ingredients', lines: [
         { name: 'Napa Cabbage', count: 2, line_total: 40, requested: '1 kg', image: 'https://images.example.test/cabbage.png', status: 'stocked' },
@@ -460,18 +464,18 @@ async function editableCarts(browser) {
       await f.page.locator('[aria-label="Rice quantity"]').filter({ hasText: /^3$/ }).waitFor();
       await f.click('acart-checkout'); await f.waitScreen('cart');
       assert.equal(mutations, 1, 'Back and an unchanged cart must not repeat quantity mutation');
-      await f.click('checkout-action-1');
-      await f.page.getByRole('alertdialog', { name: 'Clear or cancel this cart?' }).waitFor();
+      await f.click('cart-clear');
+      await f.page.getByRole('alertdialog', { name: /Clear every item from/ }).waitFor();
       assert.equal(cancellations, 0);
       await f.page.getByRole('button', { name: 'Keep cart', exact: true }).click();
       assert.equal(cancellations, 0);
-      await f.click('checkout-action-1');
-      await f.page.getByRole('button', { name: 'Confirm', exact: true }).evaluate(button => { button.click(); button.click(); });
+      await f.click('cart-clear');
+      await f.page.getByRole('button', { name: 'Clear cart', exact: true }).evaluate(button => { button.click(); button.click(); });
       await f.waitScreen('cart-cleared');
-      await f.page.getByText('Your cart is empty.', { exact: true }).waitFor();
+      await f.page.getByText(/cart is empty \(verified\)/).waitFor();
       assert.equal(cancellations, 1);
       assert.equal(orders, 0);
-      console.log(`PASS ${variant}: compact editor, targeted quantity, TV arrows, immediate cart, Back, exact confirmed cancel; no order.`);
+      console.log(`PASS ${variant}: compact editor, targeted quantity, TV arrows, immediate cart, Back, verified explicit clear; no order.`);
     } finally { release(); await f.finish(); }
   }
 }
@@ -547,26 +551,33 @@ async function widgetRace(browser) {
 }
 
 async function destructiveTextActions(browser) {
-  for (const label of ['No, cancel', 'No, cancel it', 'clear cart']) {
-    let clears = 0;
-    const f = await fixture(browser, request => {
-      if (request.message === label) { clears++; return { widget: 'cart', payload: { platform: 'Zepto', items: [], total: 0 } }; }
-      return { widget: 'text', payload: { title: 'Review your Zepto cart' }, actions: [label] };
-    });
-    try {
-      await f.speak('Find ingredients from Zepto'); await f.waitScreen('text');
-      await f.click('text-action-0');
-      await f.page.getByRole('alertdialog', { name: 'Clear or cancel this cart?' }).waitFor();
-      assert.equal(clears, 0);
-      await f.page.getByRole('button', { name: 'Keep cart', exact: true }).click();
-      await f.click('text-action-0');
-      await f.page.getByRole('button', { name: 'Confirm', exact: true }).evaluate(button => { button.click(); button.click(); });
-      await f.waitScreen('cart-cleared');
-      assert.equal(clears, 1);
-      assert.equal(f.state.requests.at(-1).message, label);
-    } finally { await f.finish(); }
-  }
-  console.log('PASS cancel/clear text labels require confirmation and preserve exact backend action strings.');
+  const label = 'clear cart'
+  let clears = 0, emptied = false
+  const f = await fixture(browser, request => {
+    if (request.message.startsWith('Clear the current')) {
+      clears++; emptied = true
+      return { widget: 'text', text: 'Provider claims the cart was cleared.' }
+    }
+    if (request.message.startsWith('Show my current')) return {
+      widget: 'cart', payload: { platform: 'Zepto',
+        items: emptied ? [] : [{ name: 'Milk', quantity: 1 }], total: emptied ? 0 : 80 },
+    }
+    return { widget: 'text', payload: { title: 'Review your Zepto cart' }, actions: [label] }
+  })
+  try {
+    await f.speak('Find ingredients from Zepto'); await f.waitScreen('text')
+    await f.click('text-action-0')
+    await f.page.getByRole('alertdialog', { name: /Clear every item from/ }).waitFor()
+    assert.equal(clears, 0)
+    await f.page.getByRole('button', { name: 'Keep cart', exact: true }).click()
+    assert.equal(clears, 0)
+    await f.click('text-action-0')
+    await f.page.getByRole('button', { name: 'Clear cart', exact: true }).evaluate(button => { button.click(); button.click() })
+    await f.waitScreen('cart-cleared')
+    assert.equal(clears, 1)
+    assert.match(f.state.requests.at(-1).message, /Read-only verification/)
+  } finally { await f.finish() }
+  console.log('PASS explicit cart clear mutates once and verifies read-only.')
 }
 
 (async () => {
