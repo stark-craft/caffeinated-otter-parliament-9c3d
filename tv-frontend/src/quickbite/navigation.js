@@ -101,7 +101,7 @@ export function editableCartFocusAfterArrow(current, key, count) {
   const index = Number(row)
   if (key === 'ArrowLeft') return `acart-minus-${index}`
   if (key === 'ArrowRight') return `acart-plus-${index}`
-  if (key === 'ArrowUp') return index ? `acart-${side}-${index - 1}` : current
+  if (key === 'ArrowUp') return index ? `acart-${side}-${index - 1}` : 'screen-heading'
   if (key === 'ArrowDown') return index + 1 < count ? `acart-${side}-${index + 1}` : 'acart-checkout'
   return null
 }
