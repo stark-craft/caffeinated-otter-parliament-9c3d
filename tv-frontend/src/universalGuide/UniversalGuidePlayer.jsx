@@ -65,8 +65,22 @@ export default function UniversalGuidePlayer({ onProductSelect, ...playerProps }
         if (!event.repeat) setVideoView(false)
       }
     }
+    // Some Samsung Tizen engines deliver remote Return/Back as the
+    // 'tizenhwkey' event instead of a normal keydown (keyCode 10009).
+    // Consume it only inside full-video mode; otherwise the platform owns it.
+    const tizenBack = event => {
+      if (event.keyName !== 'back' && event.keyName !== 'Back') return
+      if (playerProps.paneOpen) return
+      event.preventDefault?.()
+      event.stopPropagation?.()
+      setVideoView(false)
+    }
     document.addEventListener('keydown', control, true)
-    return () => document.removeEventListener('keydown', control, true)
+    document.addEventListener('tizenhwkey', tizenBack, true)
+    return () => {
+      document.removeEventListener('keydown', control, true)
+      document.removeEventListener('tizenhwkey', tizenBack, true)
+    }
   }, [classic, videoView, playerProps.paneOpen, playerProps.onCloseShop])
   if (classic) {
     return <VideoPlayer {...playerProps} />
