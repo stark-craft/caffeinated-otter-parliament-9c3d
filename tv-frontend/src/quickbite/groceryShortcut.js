@@ -11,8 +11,14 @@ export function groceryShortcutRequest(productId) {
     ? { type: 'grocery-shortcut', productId } : null
 }
 
-export function groceryShortcutPrompt(product) {
-  return `Find ${product.name} near me. Return in-stock matching product offers with their brand, pack size, price and grocery store for quantity review. This request is search only.`
+export function groceryShortcutPrompt(product, requestId = 'new', recovery = false) {
+  const token = String(requestId).replace(/[^a-z0-9-]/gi, '').slice(0, 30) || 'new'
+  return `Find ${product.name} near me. This is independent grocery discovery ${token}${recovery ? '-recheck' : ''}. Look up currently available provider offers afresh, regardless of prior searches. Do not refer to or summarize earlier search results. Return structured grocery carousel cards with name, brand, pack_size, price, platform and in_stock for quantity review. Do not answer "Same fresh results — no changes". This request is search only.`
+}
+export function isRepeatedResultSummary(envelope) {
+  if (envelope?.widget !== 'text') return false
+  const text = [envelope?.text, envelope?.payload?.title].filter(Boolean).join(' ')
+  return /same fresh results|same results|no changes|unchanged results/i.test(text)
 }
 
 function words(value) {
