@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { screenForEnvelope, defaultFocusFor, focusKeysFor, isCartDestructiveAction } from './widgetScreens.js'
+import { screenForEnvelope, defaultFocusFor, focusKeysFor, isCartDestructiveAction, isCheckoutDeclineAction } from './widgetScreens.js'
 import { agentCartEditPrompt, agentCartDisplayTotal, editAgentCartQuantity } from './agentCart.js'
 import { buildView, viewForRequest } from './viewContext.js'
 import { deriveIntent } from './deriveIntent.js'
@@ -22,7 +22,7 @@ test('stocked baskets normalize into editable cart rows and exclude unavailable/
   assert.equal(model.lines[0].pack_size, '1 kg')
   assert.equal(model.lines[0].image_url, 'https://images.example.test/cabbage.png')
   assert.equal(defaultFocusFor(screen, model), 'acart-plus-0')
-  assert.deepEqual(focusKeysFor(screen, model), ['acart-minus-0','acart-plus-0','acart-minus-1','acart-plus-1','acart-checkout'])
+  assert.deepEqual(focusKeysFor(screen, model), ['acart-minus-0','acart-plus-0','acart-minus-1','acart-plus-1','acart-checkout','acart-clear'])
 })
 
 test('bare Swiggy is Instamart only when grocery metadata or the actual server establishes it', () => {
@@ -94,9 +94,11 @@ test('editable widget snapshots retain provider and references but omit pricing 
   assert.equal(fresh.cartCount, 0)
 })
 
-test('only exact cart cancel/clear labels receive destructive confirmation; order cancellation is distinct', () => {
-  for (const label of ['No, cancel','No, cancel it','clear cart','Clear my cart']) assert.equal(isCartDestructiveAction(label), true)
-  for (const label of ['Cancel my order','No, thanks','Show cancelled orders','Yes, place the order']) assert.equal(isCartDestructiveAction(label), false)
+test('only explicit cart-clear labels receive destructive confirmation; checkout decline and order cancellation are distinct', () => {
+  for (const label of ['clear cart','Clear my cart','Cancel cart']) assert.equal(isCartDestructiveAction(label), true)
+  for (const label of ['No, cancel','No, cancel it','Cancel my order','No, thanks','Show cancelled orders','Yes, place the order']) assert.equal(isCartDestructiveAction(label), false)
+  assert.equal(isCheckoutDeclineAction('No, cancel'), true)
+  assert.equal(isCheckoutDeclineAction('No, cancel it'), true)
 })
 
 test('grocery comparison labels normalize without relabelling Swiggy Food as Instamart', () => {
