@@ -29,6 +29,7 @@ import {
 import { backTarget, recordScreenVisit, takePreviousScreen, editableCartFocusAfterArrow } from '../../quickbite/navigation.js'
 import { agentCartEditPrompt, editAgentCartQuantity } from '../../quickbite/agentCart.js'
 import { cartClearRequestPrompt, cartReadbackPrompt, verifiedEmptyCart } from '../../quickbite/cartState.js'
+import { checkoutActionLabels, checkoutOptionsRequest } from '../../quickbite/checkoutOptions.js'
 import { missLabel } from '../../quickbite/missLabels.js'
 import { matchedDishLines, notFoundLabel } from '../../quickbite/restaurantMatch.js'
 import { routeIntent } from '../../quickbite/intents.js'
@@ -67,13 +68,8 @@ function cleanQuickActionLabel(label = '') {
       .trim() || 'Food'
   )}/* * IMPORTANT: * * This mirrors the OLD working Carousel.jsx checkout contract. * * The backend returns: * *
    env.actions * * Every action is rendered to the user. * * When the user chooses an action, the exact action string is passed to: * *
-   sendSilent(label) * * We do NOT: * - regex-select an action automatically * - invent a payment method * - invent a checkout prompt * - introduce /api/payment * - modify the backend-provided action string */function checkoutActionLabels(envelope) {
-  if (!Array.isArray(envelope?.actions)) {
-    return []
-  }
-  return envelope.actions
-    .map((label) => String(label ?? '').trim())
-    .filter(Boolean)}
+   sendSilent(label) * * We do NOT: * - regex-select an action automatically * - invent a payment method * - invent a checkout prompt * - introduce /api/payment * - modify the backend-provided action string *//* Checkout buttons are supplied by the provider response (including
+   payload.actions when top-level actions is empty). */
 function paymentDisplayLabel(value) {
   if (value == null || value === '') {
     return ''
@@ -644,9 +640,11 @@ const QuickBitePanel = forwardRef(
         }
         if (screen === 'cart') {
           if (flowError) return ['retry', 'shop-more']
+          const missingChoices = Boolean(cart?.items?.length && !orderSubmitted && !checkoutActions.length)
           return [
             ...(cart?.items || []).map((_, index) => `cart-item-${index}`),
             ...checkoutActions.map((_, index) => `checkout-action-${index}`),
+            ...(missingChoices ? ['checkout-options', 'cart-decline'] : []),
             ...(cart?.items?.length && !orderSubmitted ? ['cart-clear'] : []),
             'shop-more',
           ]
@@ -1175,7 +1173,7 @@ const QuickBitePanel = forwardRef(
         cart:
           checkoutActions.length
             ? 'checkout-action-0'
-            : cart?.items?.length ? 'cart-clear' : 'shop-more',
+            : cart?.items?.length ? 'checkout-options' : 'shop-more',
         pay:
           checkoutWithoutTracking ? 'shop-more' : 'refresh-tracking',
         'payment-received':
@@ -1815,7 +1813,7 @@ const QuickBitePanel = forwardRef(
         setCartEnvelope(envelope)
         setCart(normalizedCart)
         const actions = checkoutActionLabels(envelope)
-        setFocusKey(actions.length ? 'checkout-action-0' : 'shop-more')
+        setFocusKey(actions.length ? 'checkout-action-0' : 'checkout-options')
       } catch (error) {
         setFlowError({
           kind: 'cart',
@@ -2164,7 +2162,7 @@ const QuickBitePanel = forwardRef(
         setCartEnvelope(envelope)
         setCart(normalizedCart)
         const actions = checkoutActionLabels(envelope)
-        setFocusKey(actions.length ? 'checkout-action-0' : 'shop-more')
+        setFocusKey(actions.length ? 'checkout-action-0' : 'checkout-options')
       } catch (error) {
         if (epoch !== journeyEpochRef.current) return
         // The platform rides along so Try again reopens THIS cart.
@@ -2183,6 +2181,42 @@ const QuickBitePanel = forwardRef(
       const platform = platformMentioned(widgetModel) || cart?.platform || stockedBasket?.platform
       if (platform) return openPlatformCart(platform)
       return askFromWidget('Show my cart exactly as it is. Do NOT place the order.')
+    }
+    /* Actionless cart fallback: ask for buttons, never submit checkout,
+       cancellation, payment, or any other financial action. */
+    async function requestCheckoutOptions() {
+      if (!cart?.items?.length || orderSubmitted || loadingPhase || checkoutInFlightRef.current) return
+      const platform = cartPlatformName
+      const prompt = checkoutOptionsRequest(platform, vertical)
+      if (!prompt) {
+        setNotice('The provider for this cart is unknown. Keep your cart and return to the provider.')
+        return
+      }
+      const epoch = journeyEpochRef.current
+      checkoutInFlightRef.current = true
+      setLoadingPhase('cart')
+      setNotice('')
+      try {
+        const envelope = await sendSilent(prompt, { provider: providerId(platform, vertical) })
+        if (epoch !== journeyEpochRef.current) return
+        const refreshed = cartFromEnvelope(envelope)
+        if (refreshed) setCart(refreshed)
+        setCartEnvelope(envelope)
+        const choices = checkoutActionLabels(envelope)
+        if (choices.length) {
+          setFocusKey('checkout-action-0')
+        } else {
+          setNotice('Checkout options are not available from this provider yet. Your cart has not been changed.')
+          setFocusKey('checkout-options')
+        }
+      } catch (error) {
+        if (epoch !== journeyEpochRef.current) return
+        setNotice(`Unable to check checkout options: ${error.message || 'provider unavailable'}. Your cart is unchanged.`)
+        setFocusKey('checkout-options')
+      } finally {
+        checkoutInFlightRef.current = false
+        if (epoch === journeyEpochRef.current) setLoadingPhase('')
+      }
     }
     async function submitCheckoutAction(
       label,
@@ -2444,6 +2478,8 @@ const QuickBitePanel = forwardRef(
       }
       if (key === 'acart-clear') return confirmCartDestruction(false)
       if (key === 'cart-clear') return confirmCartDestruction(true)
+      if (key === 'checkout-options') return requestCheckoutOptions()
+      if (key === 'cart-decline') return goBack()
       if (key === 'acart-checkout') {
         if (widgetModel?.editable) return reviewEditedCart()
         return openPlatformCart(widgetModel?.platform)
@@ -4599,18 +4635,33 @@ const QuickBitePanel = forwardRef(
                   },
                 )}
               {!flowError &&
-                loadingPhase !==
-                'cart' &&
-                loadingPhase !==
-                'checkout' &&
-                checkoutActions.length ===
-                0 && (
-                  <p className="qb-inline-notice">
-                    {orderSubmitted
-                      ? 'Checkout was already submitted. Check the provider status before placing another order.'
-                      : 'No checkout action was returned by the backend.'}
-                  </p>
+                !orderSubmitted &&
+                Boolean(cart.items.length) &&
+                checkoutActions.length === 0 && (
+                  <>
+                    <button
+                      type="button"
+                      className={`qb-primary-button ${focusKey === 'checkout-options' ? 'is-focused' : ''}`}
+                      {...focusableProps('checkout-options')}
+                      disabled={Boolean(loadingPhase)}
+                    >
+                      {loadingPhase === 'cart' ? 'Checking checkout options…' : 'Check checkout options'}
+                    </button>
+                    <button
+                      type="button"
+                      className={`qb-secondary-button ${focusKey === 'cart-decline' ? 'is-focused' : ''}`}
+                      {...focusableProps('cart-decline')}
+                      disabled={Boolean(loadingPhase)}
+                    >
+                      Cancel checkout · Keep cart
+                    </button>
+                  </>
                 )}
+              {!flowError && orderSubmitted && !checkoutActions.length && (
+                <p className="qb-inline-notice">
+                  Checkout was already submitted. Check the provider status before placing another order.
+                </p>
+              )}
               {!flowError && !orderSubmitted && Boolean(cart.items.length) && <button
                 type="button"
                 className={`qb-secondary-button ${focusKey === 'cart-clear' ? 'is-focused' : ''}`}
