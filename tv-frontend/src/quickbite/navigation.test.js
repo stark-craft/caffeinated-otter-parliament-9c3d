@@ -36,4 +36,6 @@ test('editable cart arrows retain control column across rows and bridge the bott
   assert.equal(editableCartFocusAfterArrow('acart-plus-1', 'ArrowDown', 2), 'acart-checkout')
   assert.equal(editableCartFocusAfterArrow('acart-checkout', 'ArrowUp', 2), 'acart-plus-1')
   assert.equal(editableCartFocusAfterArrow('acart-checkout', 'ArrowUp', 0), null)
+  assert.equal(editableCartFocusAfterArrow('acart-plus-0', 'ArrowUp', 2), 'screen-heading')
+  assert.equal(editableCartFocusAfterArrow('acart-minus-0', 'ArrowUp', 2), 'screen-heading')
 })

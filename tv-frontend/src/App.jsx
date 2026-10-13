@@ -540,6 +540,7 @@ externalRequest={externalRequest}
 trackingState={trackingState}
 onPanelState={setPanelState}
 onRetryRequest={handleRetryRequest}
+onQuickPrompt={prompt => handleTranscript(prompt, 'en-IN', 'quick-prompt')}
 />
 </>
 return (

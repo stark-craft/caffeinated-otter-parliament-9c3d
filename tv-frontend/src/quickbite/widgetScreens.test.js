@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { screenForEnvelope } from './widgetScreens.js'
+import { screenForEnvelope, focusKeysFor } from './widgetScreens.js'
 
 test('existing backend envelope fixtures route to their intended screens', () => {
   const fixtures = JSON.parse(readFileSync(new URL('./fixtures/widget_envelopes.json', import.meta.url)))
@@ -54,4 +54,47 @@ test('nested carousel kind is routed consistently with the existing card mappers
   })
   assert.equal(food.screen, 'restaurant')
   assert.equal(food.model[0].name, 'Example Kitchen')
+})
+
+
+test('stocked baskets use an editable agent cart with a separate Clear Cart action', () => {
+  const { screen, model } = screenForEnvelope({
+    widget: 'basket_stocked', payload: { platform: 'Zepto', total: 120,
+      lines: [{ name: 'Milk', count: 2, unit_price: 60, status: 'stocked' }] },
+  })
+  assert.equal(screen, 'agent-cart')
+  assert.equal(model.editable, true)
+  assert.deepEqual(focusKeysFor(screen, model),
+    ['acart-minus-0', 'acart-plus-0', 'acart-checkout', 'acart-clear'])
+})
+
+test('food carts retain preview and Edit items, while Clear Cart is explicitly focusable', () => {
+  const { screen, model } = screenForEnvelope({
+    widget: 'cart', payload: { platform: 'Swiggy', total: 120,
+      items: Array.from({ length: 6 }, (_, i) => ({ name: `Samosa ${i + 1}`, qty: 1, price: 20 })) },
+  })
+  assert.equal(screen, 'agent-cart')
+  assert.equal(model.editable, false)
+  assert.equal(model.lines.length, 6)
+  assert.deepEqual(focusKeysFor(screen, model),
+    ['acart-item-0', 'acart-item-1', 'acart-item-2', 'acart-item-3', 'acart-item-4',
+      'acart-checkout', 'acart-edit', 'acart-more', 'acart-clear'])
+  assert.deepEqual(focusKeysFor(screen, model, { expanded: true }),
+    ['acart-item-0', 'acart-item-1', 'acart-item-2', 'acart-item-3', 'acart-item-4',
+      'acart-item-5', 'acart-checkout', 'acart-edit', 'acart-clear'])
+})
+
+test('grocery carts with zero items render an intentional empty state; food cart with no rows safely falls back', () => {
+  const emptyGrocery = screenForEnvelope({ widget: 'cart', payload: { kind: 'grocery', platform: 'Zepto', items: [], total: 0 } })
+  assert.equal(emptyGrocery.screen, 'agent-cart')
+  assert.deepEqual(focusKeysFor(emptyGrocery.screen, emptyGrocery.model), ['shop-more'])
+  const emptyFood = screenForEnvelope({ widget: 'cart', payload: { platform: 'Swiggy', items: [], total: 0 } })
+  assert.equal(emptyFood.screen, 'text')
+})
+
+test('menu and exact grocery carousel retain separate routes', () => {
+  const menu = screenForEnvelope({ widget: 'menu', payload: { restaurant: 'Test Kitchen', platform: 'Zomato', items: [{ name: 'Paneer', price: 100 }] } })
+  assert.equal(menu.screen, 'menu')
+  const grocery = screenForEnvelope({ widget: 'carousel', payload: { kind: 'grocery', cards: [{ name: 'Milk', platform: 'Zepto', in_stock: true, price: 60 }] } })
+  assert.equal(grocery.screen, 'gresults')
 })

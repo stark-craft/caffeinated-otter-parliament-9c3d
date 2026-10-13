@@ -58,13 +58,29 @@ export default function UniversalGuidePlayer({ onProductSelect, ...playerProps }
           setVideoView(false)
         }
       } else if (!playerProps.paneOpen && ['Backspace', 'Escape'].includes(key)) {
-        // Repeated Back exits commerce only. Home is a deliberate media-key action.
+        // Tizen's Return/Back key (10009) returns to the Samsung dummy home
+        // when no commerce panel is open; never turn Back into an order action.
         event.preventDefault()
         event.stopPropagation()
+        if (!event.repeat) setVideoView(false)
       }
     }
+    // Some Samsung Tizen engines deliver remote Return/Back as the
+    // 'tizenhwkey' event instead of a normal keydown (keyCode 10009).
+    // Consume it only inside full-video mode; otherwise the platform owns it.
+    const tizenBack = event => {
+      if (event.keyName !== 'back' && event.keyName !== 'Back') return
+      if (playerProps.paneOpen) return
+      event.preventDefault?.()
+      event.stopPropagation?.()
+      setVideoView(false)
+    }
     document.addEventListener('keydown', control, true)
-    return () => document.removeEventListener('keydown', control, true)
+    document.addEventListener('tizenhwkey', tizenBack, true)
+    return () => {
+      document.removeEventListener('keydown', control, true)
+      document.removeEventListener('tizenhwkey', tizenBack, true)
+    }
   }, [classic, videoView, playerProps.paneOpen, playerProps.onCloseShop])
   if (classic) {
     return <VideoPlayer {...playerProps} />
@@ -86,6 +102,7 @@ export default function UniversalGuidePlayer({ onProductSelect, ...playerProps }
         if (videoView && !paneOpen) {
           event.preventDefault()
           event.stopPropagation()
+          if (!event.repeat) setVideoView(false)
           return
         }
       }
@@ -121,7 +138,7 @@ export default function UniversalGuidePlayer({ onProductSelect, ...playerProps }
             event.stopPropagation()
             setVideoView(false)
           }
-        }}>‹ TV home <span>Play/Pause · Space</span></button>}
+        }}>‹ TV home <span>Back · Play/Pause · Space</span></button>}
     </div>
   )
 }

@@ -54,8 +54,10 @@ export function isOrderAction(label) {
   return ORDER_ACTION_RES.some((re) => re.test(text));
 }
 export function isCartDestructiveAction(label) {
-  return /^(?:no[,\s]+)?cancel(?: it)?[.!]?$/i.test(String(label || '').trim()) ||
-    /^(?:clear|cancel) (?:my |the )?cart[.!]?$/i.test(String(label || '').trim());
+  return /^(?:clear|cancel) (?:my |the )?cart[.!]?$/i.test(String(label || '').trim());
+}
+export function isCheckoutDeclineAction(label) {
+  return /^(?:no[,\s]+)?cancel(?: it)?[.!]?$/i.test(String(label || '').trim());
 }
 const MENTIONED_RE = /\b(swiggy instamart|instamart|zepto|swiggy|zomato)\b/i;
 const MENTIONED_NAMES = {
@@ -268,10 +270,16 @@ export function focusKeysFor(screen, model, { expanded = false } = {}) {
     ];
   }
   if (screen === "agent-cart") {
-    if (!asArray(m.lines).length) return ['shop-more'];
-    if (m.editable) return [...asArray(m.lines).flatMap((_, i) => [`acart-minus-${i}`, `acart-plus-${i}`]), 'acart-checkout'];
-    const more = !expanded && asArray(m.lines).length > CART_PREVIEW;
-    return ["acart-checkout", "acart-edit", ...(more ? ["acart-more"] : [])];
+    const lines = asArray(m.lines)
+    if (!lines.length && !m.dirty) return ['shop-more']
+    if (m.editable) return [...lines.flatMap((_, i) => [`acart-minus-${i}`, `acart-plus-${i}`]), 'acart-checkout', 'acart-clear']
+    const visible = expanded ? lines.length : Math.min(lines.length, CART_PREVIEW)
+    const more = !expanded && lines.length > CART_PREVIEW
+    return [
+      ...Array.from({ length: visible }, (_, i) => `acart-item-${i}`),
+      'acart-checkout', 'acart-edit',
+      ...(more ? ['acart-more'] : []), 'acart-clear',
+    ]
   }
   if (screen === "compare")
     return asArray(m.entries).map((_, i) => `cmp-order-${i}`);

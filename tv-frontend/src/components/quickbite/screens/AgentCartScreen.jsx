@@ -25,13 +25,14 @@ export default function AgentCartScreen({
         `${lines.length} items`,
       )}
       <PlatformBadge platform={model?.platform} />
-      {!lines.length && <p>Your cart is empty.</p>}
+      {!lines.length && <p>{model?.dirty ? 'All rows removed from this draft. Select Review Cart to apply changes to the provider.' : 'Your cart is empty.'}</p>}
       {model?.unavailable > 0 && <p className="qb-cart-line-pack">{model.unavailable} unavailable items excluded.</p>}
       <ul className={`qb-cart-lines ${model?.editable ? 'qb-cart-editor' : ''}`}>
         {shown.map((line, i) => (
           <li
             key={`${line.name}-${i}`}
-            className={`qb-cart-line ${line.in_stock ? "" : "is-out"} ${focusKey === `acart-minus-${i}` || focusKey === `acart-plus-${i}` ? 'has-active-control' : ''}`}
+            className={`qb-cart-line ${line.in_stock ? "" : "is-out"} ${focusKey === `acart-minus-${i}` || focusKey === `acart-plus-${i}` ? 'has-active-control' : ''} ${!model?.editable && focusKey === `acart-item-${i}` ? 'is-focused' : ''}`}
+            {...(!model?.editable ? focusableProps(`acart-item-${i}`) : {})}
           >
             <Media
               src={line.image_url}
@@ -51,8 +52,8 @@ export default function AgentCartScreen({
               )}
             </span>
             {model?.editable ? <span className="qb-quantity-controls qb-cart-quantity">
-              <button type="button" aria-label={`Decrease ${line.name} quantity`} aria-disabled={line.quantity <= 1}
-                className={`${line.quantity <= 1 ? 'is-disabled' : ''} ${focusKey === `acart-minus-${i}` ? 'is-focused' : ''}`} {...focusableProps(`acart-minus-${i}`)}>−</button>
+              <button type="button" aria-label={`Decrease ${line.name} quantity; zero removes this item from the draft`}
+                className={focusKey === `acart-minus-${i}` ? 'is-focused' : ''} {...focusableProps(`acart-minus-${i}`)}>−</button>
               <strong aria-label={`${line.name} quantity`}>{line.quantity}</strong>
               <button type="button" aria-label={`Increase ${line.name} quantity`}
                 className={focusKey === `acart-plus-${i}` ? 'is-focused' : ''} {...focusableProps(`acart-plus-${i}`)}>+</button>
@@ -76,7 +77,7 @@ export default function AgentCartScreen({
         <strong>{rupees(agentCartDisplayTotal(model))}</strong>
       </div>
       <div className="qb-cart-actions">
-        {lines.length ? <button
+        {(lines.length || model?.dirty) ? <button
           className={`qb-primary-button ${focusKey === "acart-checkout" ? "is-focused" : ""}`}
           {...focusableProps("acart-checkout")}
         >
@@ -87,6 +88,11 @@ export default function AgentCartScreen({
           {...focusableProps("acart-edit")}
         >
           Edit items
+        </button>}
+        {(lines.length > 0 || model?.dirty) && <button type="button"
+          className={`qb-secondary-button ${focusKey === "acart-clear" ? "is-focused" : ""}`}
+          {...focusableProps("acart-clear")}>
+          Clear Cart
         </button>}
       </div>
     </>

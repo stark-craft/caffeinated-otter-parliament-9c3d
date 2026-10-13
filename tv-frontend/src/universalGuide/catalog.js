@@ -10,7 +10,7 @@ export const HERO_SLIDES = [
   { id: 'milk', title: 'Amul Milk · 1 L', eyebrow: 'Quick Shop · Grocery',
     description: 'Choose your quantity and make it an everyday essential.', label: 'Shop Amul milk',
     image: './universal-guide/images/hero-milk.jpg', fallback: './universal-guide/milk.svg', theme: 'milk' },
-  { id: 'cola', title: 'Coca-Cola · 1 L', eyebrow: 'Quick Shop · Grocery',
+  { id: 'cola', title: 'Coca-Cola', eyebrow: 'Quick Shop · Grocery',
     description: 'Choose your quantity and settle in for the evening.', label: 'Shop Coca-Cola',
     image: './universal-guide/images/hero-cola.jpg', fallback: './universal-guide/cola.svg', theme: 'cola' },
 ]
