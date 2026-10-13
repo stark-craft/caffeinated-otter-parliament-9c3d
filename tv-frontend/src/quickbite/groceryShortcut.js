@@ -1,9 +1,9 @@
 import { providerId } from './providers.js'
 
-// Fixed banner products. Matching never substitutes another brand, size or drink.
+// Banner products: milk still requires an exact 1 L pack; Coca-Cola picks the\n// first available regular Coke offer regardless of pack size, retaining its real pack.
 export const GROCERY_SHORTCUTS = {
   milk: { id: 'milk', name: 'Amul Milk 1 L' },
-  cola: { id: 'cola', name: 'Coca-Cola 1 L' },
+  cola: { id: 'cola', name: 'Coca-Cola' },
 }
 
 export function groceryShortcutRequest(productId) {
@@ -42,10 +42,10 @@ export function firstMatchingGroceryOffer(cards, productId) {
   return cards.find(card => {
     if (card.in_stock !== true || !['number', 'string'].includes(typeof card.price) || !String(card.price).trim() ||
       !Number.isFinite(Number(card.price)) || Number(card.price) < 0 ||
-      !['zepto', 'swiggy_instamart'].includes(providerId(card.platform, 'grocery')) || !oneLitre(card)) return false
+      !['zepto', 'swiggy_instamart'].includes(providerId(card.platform, 'grocery'))) return false
     const name = words(card.name)
     const text = words(`${card.brand || ''} ${card.name || ''}`)
-    if (productId === 'milk') return /\bamul\b/u.test(text) && /\bmilk\b/u.test(name) &&
+    if (productId === 'milk') return oneLitre(card) && /\bamul\b/u.test(text) && /\bmilk\b/u.test(name) &&
       !/\b(?:powder|shake|milkshake|flavou?red|chocolate)\b/u.test(name)
     return /\b(?:coca cola|cocacola)\b/u.test(text) && /\b(?:cola|cocacola)\b/u.test(name) &&
       !/\b(?:zero|diet|light|sugar free)\b/u.test(text)
