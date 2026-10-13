@@ -495,6 +495,8 @@ const QuickBitePanel = forwardRef(
           ),
         [cartEnvelope, orderSubmitted],
       )
+    const hasProviderCheckoutDecline = checkoutActions.some(label =>
+      isCheckoutDeclineAction(label) || /^(?:cancel checkout|keep (?:my |the )?cart|no thanks)[.!]?$/i.test(label))
     const cartPaymentLabel =
       paymentDisplayLabel(
         checkoutPayment || cart?.payment,
@@ -641,10 +643,12 @@ const QuickBitePanel = forwardRef(
         if (screen === 'cart') {
           if (flowError) return ['retry', 'shop-more']
           const missingChoices = Boolean(cart?.items?.length && !orderSubmitted && !checkoutActions.length)
+          const localDecline = Boolean(cart?.items?.length && !orderSubmitted && !hasProviderCheckoutDecline)
           return [
             ...(cart?.items || []).map((_, index) => `cart-item-${index}`),
             ...checkoutActions.map((_, index) => `checkout-action-${index}`),
-            ...(missingChoices ? ['checkout-options', 'cart-decline'] : []),
+            ...(missingChoices ? ['checkout-options'] : []),
+            ...(localDecline ? ['cart-decline'] : []),
             ...(cart?.items?.length && !orderSubmitted ? ['cart-clear'] : []),
             'shop-more',
           ]
@@ -685,6 +689,7 @@ const QuickBitePanel = forwardRef(
         groceryResults,
         selectedItem,
         checkoutActions,
+        hasProviderCheckoutDecline,
         cart,
         orderSubmitted,
         quantity,
@@ -4638,24 +4643,27 @@ const QuickBitePanel = forwardRef(
                 !orderSubmitted &&
                 Boolean(cart.items.length) &&
                 checkoutActions.length === 0 && (
-                  <>
-                    <button
-                      type="button"
-                      className={`qb-primary-button ${focusKey === 'checkout-options' ? 'is-focused' : ''}`}
-                      {...focusableProps('checkout-options')}
-                      disabled={Boolean(loadingPhase)}
-                    >
-                      {loadingPhase === 'cart' ? 'Checking checkout options…' : 'Check checkout options'}
-                    </button>
-                    <button
-                      type="button"
-                      className={`qb-secondary-button ${focusKey === 'cart-decline' ? 'is-focused' : ''}`}
-                      {...focusableProps('cart-decline')}
-                      disabled={Boolean(loadingPhase)}
-                    >
-                      Cancel checkout · Keep cart
-                    </button>
-                  </>
+                  <button
+                    type="button"
+                    className={`qb-primary-button ${focusKey === 'checkout-options' ? 'is-focused' : ''}`}
+                    {...focusableProps('checkout-options')}
+                    disabled={Boolean(loadingPhase)}
+                  >
+                    {loadingPhase === 'cart' ? 'Checking checkout options…' : 'Check checkout options'}
+                  </button>
+                )}
+              {!flowError &&
+                !orderSubmitted &&
+                Boolean(cart.items.length) &&
+                !hasProviderCheckoutDecline && (
+                  <button
+                    type="button"
+                    className={`qb-secondary-button ${focusKey === 'cart-decline' ? 'is-focused' : ''}`}
+                    {...focusableProps('cart-decline')}
+                    disabled={Boolean(loadingPhase)}
+                  >
+                    Cancel checkout · Keep cart
+                  </button>
                 )}
               {!flowError && orderSubmitted && !checkoutActions.length && (
                 <p className="qb-inline-notice">
