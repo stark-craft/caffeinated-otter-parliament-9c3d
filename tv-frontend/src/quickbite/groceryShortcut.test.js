@@ -33,14 +33,24 @@ test('Amul milk matching requires the requested single 1 L pack, including equiv
   assert.ok(firstMatchingGroceryOffer([{ ...milk, pack_size: '', name: 'Amul Milk 1 L' }], 'milk'))
 })
 
-test('Coca-Cola shortcut excludes other brands, sizes, diet and zero variants', () => {
+test('Coca-Cola shortcut takes the first priced, stocked regular Coca-Cola offer of any size', () => {
   for (const name of ['Coca-Cola Original Taste', 'Coca Cola Soft Drink', 'CocaCola']) {
     assert.ok(firstMatchingGroceryOffer([{ ...cola, name }], 'cola'), name)
   }
   for (const name of ['Pepsi Cola', 'Coca-Cola Zero Sugar', 'Diet Coca-Cola', 'Coca-Cola Light', 'Coca Cola Sugar Free', 'Sprite']) {
     assert.equal(firstMatchingGroceryOffer([{ ...cola, name }], 'cola'), null, name)
   }
-  assert.equal(firstMatchingGroceryOffer([{ ...cola, pack_size: '2 L' }], 'cola'), null)
+  for (const pack_size of ['250 ml', '500 ml', '1 L', '2 L', '']) {
+    assert.ok(firstMatchingGroceryOffer([{ ...cola, pack_size }], 'cola'), pack_size)
+  }
+  const candidates = [
+    { ...cola, name: 'Pepsi Cola', price: 10 },
+    { ...cola, name: 'Coca-Cola Zero Sugar', price: 20 },
+    { ...cola, name: 'Coca-Cola Original Taste', pack_size: '500 ml', price: 40 },
+    { ...cola, name: 'Coca-Cola Original Taste', pack_size: '1 L', price: 70 },
+  ]
+  assert.equal(firstMatchingGroceryOffer(candidates, 'cola'), candidates[2])
+  assert.equal(GROCERY_SHORTCUTS.cola.name, 'Coca-Cola')
 })
 
 test('automatic selection rejects missing availability, price or valid grocery provider', () => {
