@@ -2315,7 +2315,7 @@ const QuickBitePanel = forwardRef(
         }
         throw new Error(
           envelope?.text ||
-          'The backend did not return another checkout action, payment QR, or tracking descriptor.',
+          'The provider did not confirm whether checkout completed or offer a next step.',
         )
       } catch (error) {
         setFlowError({
@@ -5264,9 +5264,9 @@ const STRUCTURED_ERROR_COPY = {
   menu:
     'No fresh structured menu data was returned for this restaurant. Please retry.',
   cart:
-    'The backend did not return a valid structured cart. Please retry.',
+    'We could not load your cart details. Try again or return to the provider cart.',
   checkout:
-    'The backend did not return valid checkout/payment data. Please retry.',}
+    'We could not confirm the checkout result. Check the provider order status before trying again.',}
 function structuredErrorDetail(
   error,) {
   // The backend's own explanation ("this restaurant is offline", "that item is
@@ -5292,6 +5292,6 @@ function structuredErrorDetail(
     STRUCTURED_ERROR_COPY[
       error?.kind
     ] ||
-    'The backend did not return valid structured commerce data. Please retry.'
+    'The provider did not supply the details needed to continue. Try again or go back.'
   )}
 export default QuickBitePanel
