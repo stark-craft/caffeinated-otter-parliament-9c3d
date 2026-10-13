@@ -23,6 +23,7 @@ import {
   safeSubtotal,
   trackingFromEnvelope,} from '../../quickbite/envelopes.js'
 import {
+  trackingDisplay,
   screenForTracking,
   trackingPhase,
   trackingText,} from '../../quickbite/tracking.js'
@@ -212,58 +213,26 @@ function ProgressStepper({ stage }) {
       )}
     </div>
   )}
-function TrackingStepper({ phase }) {
-  const current =
-    phase === 'delivered'
-      ? 2
-      : phase === 'on-the-way'
-        ? 1
-        : 0
+function TrackingStepper({ phase, completedThrough }) {
+  const current = phase === 'delivered' ? 2 : phase === 'on-the-way' ? 1 : 0
+  const lastCompleted = Number.isInteger(completedThrough) ? completedThrough
+    : phase === 'delivered' ? 2 : phase === 'on-the-way' ? 1 : -1
   return (
-    <div
-      className="qb-tracking-steps"
-      aria-label={`Order stage: ${phase}`}
-    >
-      {[
-        'Preparing',
-        'On the way',
-        'Delivered',
-      ].map((label, index) => (
-        <div
-          className="qb-track-fragment"
-          key={label}
-        >
+    <div className="qb-tracking-steps" aria-label={`Order stage: ${phase}`}>
+      {['Preparing', 'On the way', 'Delivered'].map((label, index) => (
+        <div className="qb-track-fragment" key={label}>
           {index > 0 && (
-            <span
-              className={`qb-track-line ${
-                index <= current
-                  ? 'is-done'
-                  : ''
-              }`}
-            />
+            <span className={`qb-track-line ${index <= lastCompleted ? 'is-done' : ''}`} />
           )}
-          <div
-            className={`qb-track-step ${
-              index < current
-                ? 'is-done'
-                : ''
-            } ${
-              index === current
-                ? 'is-current'
-                : ''
-            }`}
-          >
-            <span className="qb-track-circle">
-              {index < current
-                ? '✓'
-                : index + 1}
-            </span>
+          <div className={`qb-track-step ${index <= lastCompleted ? 'is-done' : ''} ${index === current ? 'is-current' : ''}`}>
+            <span className="qb-track-circle">{index <= lastCompleted ? '✓' : index + 1}</span>
             <span>{label}</span>
           </div>
         </div>
       ))}
     </div>
-  )}
+  )
+}
 function LoadingState({ label }) {
   return (
     <div
@@ -4900,21 +4869,12 @@ const QuickBitePanel = forwardRef(
     function renderTrackingScreen(
       phase,
     ) {
-      const isDelivered =
-        phase ===
-        'delivered'
-      const title =
-        isDelivered
-          ? 'Delivered'
-          : phase ===
-            'on-the-way'
-            ? 'On the Way'
-            : 'Preparing your order'
+      const display = trackingDisplay(trackingSnapshot, phase)
+      const isDelivered = phase === 'delivered'
+      const title = display.title
       return (
         <>
-          <TrackingStepper
-            phase={phase}
-          />
+          <TrackingStepper phase={display.phase} completedThrough={display.completedThrough} />
           <div
             className={`qb-tracking-content ${
               isDelivered
@@ -4922,16 +4882,8 @@ const QuickBitePanel = forwardRef(
                 : ''
             }`}
           >
-            <div
-              className="qb-track-hero-icon"
-              aria-hidden="true"
-            >
-              {isDelivered
-                ? '🎉'
-                : phase ===
-                  'on-the-way'
-                  ? '🛵'
-                  : '👨‍🍳'}
+            <div className="qb-track-hero-icon" aria-hidden="true">
+              {display.icon}
             </div>
             <h1>{title}</h1>
             {isDelivered && (
@@ -4968,20 +4920,14 @@ const QuickBitePanel = forwardRef(
                   }
                 </h3>
               )}
-              {trackingText(
-                trackingSnapshot,
-              ) && (
+              {display.status && (
                 <p>
-                  {trackingText(
-                    trackingSnapshot,
-                  )}
+                  {display.status}
                 </p>
               )}
               {trackingSnapshot?.message &&
                 trackingSnapshot.message !==
-                trackingText(
-                  trackingSnapshot,
-                ) && (
+                display.status && (
                   <small>
                     {
                       trackingSnapshot.message

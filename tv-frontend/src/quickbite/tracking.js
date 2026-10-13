@@ -92,6 +92,29 @@ export function reconcileTrackingSnapshot(previous, next, { descriptor, payment 
   return next
 }
 
+// TV presentation uses the provider's precise milestone; the API still owns order state.
+export function trackingDisplay(snapshot, phase = trackingPhase(snapshot)) {
+  const direct = typeof snapshot?.step === 'string' ? snapshot.step.trim() : ''
+  const indexed = !direct && Array.isArray(snapshot?.steps) &&
+    Number.isInteger(snapshot?.current) && snapshot.current >= 0 &&
+    snapshot.current < snapshot.steps.length
+      ? String(snapshot.steps[snapshot.current] || '').trim() : ''
+  const providerStep = direct || indexed
+  const status = providerStep || trackingText(snapshot)
+  // The rider reaching the restaurant is not yet the delivery departing.
+  const displayPhase = phase === 'on-the-way' && /^at (?:the )?restaurant$/i.test(providerStep)
+    ? 'preparing' : phase
+  const completedThrough = displayPhase === 'delivered' ? 2
+    : displayPhase === 'on-the-way' ? 1 : -1
+  const title = displayPhase === 'delivered' ? 'Delivered'
+    : status || (displayPhase === 'on-the-way' ? 'On the way' : 'Preparing your order')
+  const icon = displayPhase === 'delivered' ? '🎉'
+    : /\b(?:at your door|at the door|doorstep|reached your location)\b/i.test(providerStep) ? '🚪'
+    : /^at (?:the )?restaurant$/i.test(providerStep) ? '🏪'
+    : displayPhase === 'on-the-way' ? '🛵' : '👨‍🍳'
+  return { phase: displayPhase, status, title, icon, completedThrough }
+}
+
 export async function withTrackingTimeout(request, milliseconds = 8000) {
   let timer
   try {
