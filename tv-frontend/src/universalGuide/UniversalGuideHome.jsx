@@ -6,7 +6,7 @@ import GuideArt from './GuideArt.jsx'
 import GuideRow, { GuideCards } from './GuideRow.jsx'
 import GuideSidebar from './GuideSidebar.jsx'
 
-export default function UniversalGuideHome({ paneOpen, videoView, onProductSelect, onOpenVideo, nowPlaying }) {
+export default function UniversalGuideHome({ paneOpen, videoView, onProductSelect, onOpenVideo, videoAnchorRef }) {
   const [activeTab, setActiveTab] = useState('For You')
   const [slideIndex, setSlideIndex] = useState(0)
   const [heroExpanded, setHeroExpanded] = useState(false)
@@ -218,7 +218,7 @@ export default function UniversalGuideHome({ paneOpen, videoView, onProductSelec
             <div className="split-row-container">
               <div className="split-column split-column-left"><h2 className="section-title split-section-title">Now Playing</h2>
                 <div className="content-row" data-ug-rail>
-                  <div className="content-card landscape-card ug-now-playing"><div className="card-poster-wrap ug-video-tile">{nowPlaying}
+                  <div className="content-card landscape-card ug-now-playing"><div ref={videoAnchorRef} className="card-poster-wrap ug-video-tile">
                     <button type="button" className="ug-video-launch" data-ug-focus="now-playing" aria-label="Now Playing — open video view" onClick={onOpenVideo} />
                   </div><div className="card-info always-visible"><div className="card-title">Now Playing</div><div className="card-platform-logo">Press OK to watch</div></div></div>
                 </div>
