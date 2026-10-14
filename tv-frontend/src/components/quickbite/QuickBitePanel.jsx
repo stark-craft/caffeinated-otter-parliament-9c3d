@@ -445,10 +445,10 @@ const QuickBitePanel = forwardRef(
     // Order status lives above the browsing journey; Back must not dismiss it.
     // Only API-backed tracking exposes the compact footer, never an invented ETA.
     const footerTracking = trackingFooter(trackingSnapshot, activeOrder?.tracking)
-    const livePhase =
-      trackingPhase(
-        trackingSnapshot,
-      )
+    const hasLiveFooter = Boolean(footerTracking)
+    // Broad navigation and the visible milestone must agree: a rider still
+    // at the restaurant is Preparing, not yet On the Way.
+    const livePhase = trackingDisplay(trackingSnapshot).phase
     const stableQr =
       [
         'preparing',
@@ -684,7 +684,7 @@ const QuickBitePanel = forwardRef(
       if (!open || confirmStrip) return
       const valid = [...contentKeys, 'back', ...(footerTracking ? ['order-status'] : []), 'exit']
       if (!valid.includes(storedFocusKey)) setFocusKey(contentKeys[0] || 'back')
-    }, [open, confirmStrip, contentKeys, storedFocusKey, Boolean(footerTracking)])
+    }, [open, confirmStrip, contentKeys, storedFocusKey, hasLiveFooter])
     useImperativeHandle(
       ref,
       () => ({
