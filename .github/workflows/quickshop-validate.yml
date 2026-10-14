@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - 'release/quickshop-final-20261014'
+      - 'fix/now-playing-uninterrupted-video-20261014'
   workflow_dispatch:
 
 jobs:
