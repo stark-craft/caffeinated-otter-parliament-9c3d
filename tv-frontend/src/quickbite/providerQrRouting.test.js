@@ -46,3 +46,17 @@ test('a true provider mismatch is still detected', () => {
     { slots: { providers: ['swiggy_instamart'] } }, envelope,
   )?.kind, 'provider-mismatch')
 })
+
+test('spoken check out reaches checkout without becoming a search', () => {
+  const view = { screen: 'cart', vertical: 'grocery', items: [] }
+  for (const utterance of ['Check out this cart.', 'Check out', 'Checkout']) {
+    assert.equal(deriveIntent(utterance, view).name, 'checkout', utterance)
+  }
+})
+
+test('spoken clear cart stays a clear-cart action, never a provider search', () => {
+  const view = { screen: 'cart', vertical: 'food', items: [] }
+  for (const utterance of ['Clear my cart.', 'Cancel and clear my cart.', 'Empty the cart']) {
+    assert.equal(deriveIntent(utterance, view).name, 'clear_cart', utterance)
+  }
+})
