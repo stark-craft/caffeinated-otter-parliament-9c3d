@@ -1,0 +1,56 @@
+/* Quiet, persistent live-order text between the existing Back and Exit.
+   A real button for TV remote navigation; no cards, badges, motion or spinner. */
+.qb-bottom-nav .qb-footer-tracking {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 270px;
+  min-height: 52px;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 3px;
+  margin: 0 10px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--qb-text-primary);
+  text-align: center;
+  cursor: pointer;
+}
+
+.qb-bottom-nav .qb-footer-tracking-status {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  color: inherit;
+  font-size: clamp(10px, .78vw, 13px);
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.qb-bottom-nav .qb-footer-tracking-eta {
+  color: var(--qb-text-secondary);
+  font-size: clamp(10px, .72vw, 12px);
+  font-weight: 500;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+/* Focus indication for Samsung remotes without turning status into a card. */
+.qb-bottom-nav .qb-footer-tracking.is-focused,
+.qb-bottom-nav .qb-footer-tracking:focus-visible {
+  border-color: var(--qb-orange-bright);
+  outline: none;
+  box-shadow: inset 0 -2px 0 var(--qb-orange-bright);
+}
+
+@media (max-width: 900px) {
+  .qb-bottom-nav .qb-footer-tracking {
+    margin: 0 4px;
+    padding: 6px 3px;
+  }
+}
