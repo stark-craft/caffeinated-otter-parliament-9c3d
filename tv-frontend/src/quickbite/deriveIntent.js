@@ -406,6 +406,9 @@ export function deriveIntent(transcript, view, envelope) {
     slots.vertical = /grocer|ग्रोसरी|किराना|kirana|instamart|zepto/u.test(text)
       ? "grocery"
       : "food";
+    // Keep a named provider even when this is parsed as navigation, not search.
+    slots.providers = journey.providers;
+    slots.provider = journey.providers.length === 1 ? journey.providers[0] : null;
   }
   return { ...base, name: rule.name, confidence: rule.conf, slots };
 }
