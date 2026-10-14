@@ -521,7 +521,7 @@ try {
 agent routes on ("order from <restaurant>" must not become a dish
 search). searchPrompt only appends which platforms of this vertical
 are actually connected. */
-const envelope = await send(transcript, { silent: true, voiceTraceId, searchIntent: local })
+const envelope = await send(transcript, { silent: true, voiceTraceId, searchIntent: local, lang: language })
 /* `local`, not a re-derive: every envelope-bearing branch in the panel
 returns before routeIntent, so the second derivation was dead work —
 and it ran against the pre-search view, which is now stale. */
