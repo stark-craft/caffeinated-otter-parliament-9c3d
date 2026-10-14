@@ -4593,7 +4593,7 @@ const QuickBitePanel = forwardRef(
                   </p>
                 )}
               {!flowError && checkoutActions.length > 0 && (
-                <div className="qb-checkout-actions" style={{ gridTemplateColumns: `repeat(${Math.min(checkoutActions.length, 3)}, minmax(0, 1fr))` }}>
+                <div className="qb-checkout-actions">
                   {checkoutActions.map(
                   (
                     action,
