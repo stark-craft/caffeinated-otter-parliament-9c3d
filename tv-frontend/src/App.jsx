@@ -529,8 +529,14 @@ issueRequest({ type: 'intent', intent: { ...local, pending: false }, envelope, v
 } catch (error) {
 if (error.kind === 'superseded-search') return
 if (['provider-login-required', 'provider-unavailable'].includes(error.kind) && PROVIDERS[error.provider]) {
-  // Resume only the discovery request once the *specific* merchant connects.
-  // Never automatically replay payment, cart mutations or checkout.
+  // Retire the loading view behind the QR. If pairing is cancelled, the
+  // user sees a meaningful reconnect action rather than a permanent spinner.
+  issueRequest({ type: 'intent', intent: {
+    ...local, pending: false,
+    error: `Connect ${PROVIDERS[error.provider].label} using the login QR to continue.`,
+    reconnectProvider: error.provider,
+  }, envelope: null, voiceTraceId, utterance: transcript })
+  // Resume discovery only; do not replay cart edits, checkout or payments.
   if (needsBackend) {
     deferVoice(PROVIDERS[error.provider].vertical, error.provider)
   } else {
