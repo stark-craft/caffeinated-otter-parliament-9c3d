@@ -122,6 +122,7 @@ export default function VideoPlayer({
         togglePlay()
       } else if (key === 'MediaPlay') {
         event.preventDefault()
+        shouldPlayRef.current = true
         startPlayback()
       } else if (key === 'MediaPause' || key === 'MediaStop') {
         event.preventDefault()
