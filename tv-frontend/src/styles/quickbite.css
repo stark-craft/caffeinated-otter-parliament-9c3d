@@ -277,3 +277,55 @@
   border-color: var(--qb-orange-bright);
   box-shadow: 0 0 0 3px rgba(255,122,0,.17), 0 0 22px rgba(255,122,0,.23);
 }
+
+
+/* === QUICKBITE THREE-CHOICE ORDER ACTIONS: PRESENTATION ONLY ===
+   The backend still supplies every label and checkout/cancel action. */
+.qb-checkout-actions {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  align-items: stretch;
+}
+
+.qb-checkout-actions > .qb-primary-button,
+.qb-checkout-actions > .qb-secondary-button,
+.qb-answer-actions.qb-action-row-three > .qb-answer-action {
+  min-width: 0;
+  width: 100%;
+  min-height: 54px;
+  padding: 10px 5px;
+  font-size: clamp(12px, .85vw, 16px);
+  line-height: 1.2;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+.qb-answer-actions.qb-action-row-three {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 8px;
+  max-width: none;
+}
+
+/* Agent-built carts already have a row; their 100%-width buttons
+   need flexible sizing to actually fit beside one another on TV. */
+.qb-cart-actions {
+  gap: 8px;
+}
+
+.qb-cart-actions > button {
+  flex: 1 1 0;
+  min-width: 0;
+  width: auto;
+  min-height: 54px;
+  padding: 10px 5px;
+  font-size: clamp(12px, .85vw, 16px);
+  line-height: 1.2;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+/* === END QUICKBITE THREE-CHOICE ORDER ACTIONS === */
