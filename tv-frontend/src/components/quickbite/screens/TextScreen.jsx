@@ -22,7 +22,7 @@ import { PROVIDERS } from '../../../quickbite/providers.js'
           </ul>
         )}
       </div>
-      <div className="qb-answer-actions">
+      <div className={`qb-answer-actions${model.actions.length === 3 && !model.retry && !model.reconnectProvider ? ' qb-action-row-three' : ''}`}>
         {model.reconnectProvider && (
           <button className={`qb-secondary-button qb-answer-action ${focusKey === 'reconnect-provider' ? 'is-focused' : ''}`}
             {...focusableProps('reconnect-provider')}>
