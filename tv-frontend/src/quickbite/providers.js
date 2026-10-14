@@ -62,8 +62,13 @@ export function responseProviders(envelope) {
     for (const key of ['payload', 'data', 'card', 'restaurant', 'cards', 'restaurants', 'results', 'item', 'items', 'product', 'products', 'menu', 'cart', 'cart_items', 'lines', 'entries', 'platforms', 'tracking', 'order']) visit(value[key], depth + 1)
   }
   visit(envelope)
-  const widgetProvider = providerId(envelope?.vendor_widget?.server, vertical)
-  if (widgetProvider) found.add(widgetProvider)
+  const widgetServer = envelope?.vendor_widget?.server
+  if (/^\s*swiggy\s*$/iu.test(String(widgetServer || ''))) {
+    bareSwiggy = true
+  } else {
+    const widgetProvider = providerId(widgetServer, vertical)
+    if (widgetProvider) found.add(widgetProvider)
+  }
   if (bareSwiggy && !found.has('swiggy_food') && !found.has('swiggy_instamart')) {
     found.add(providerId('swiggy', vertical))
   }
