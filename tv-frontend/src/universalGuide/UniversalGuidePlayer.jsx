@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import VideoPlayer from '../components/VideoPlayer.jsx'
 import { tvRemoteKey } from '../tizen/tvRemoteKeys.js'
 import UniversalGuideHome from './UniversalGuideHome.jsx'
+import { videoSurfaceGeometry } from './videoSurfaceGeometry.js'
 import './reference.css'
 import './universalGuide.css'
 
@@ -11,6 +12,8 @@ import './universalGuide.css'
 export default function UniversalGuidePlayer({ onProductSelect, ...playerProps }) {
   const rootRef = useRef(null)
   const homeStageRef = useRef(null)
+  const videoAnchorRef = useRef(null)
+  const videoSurfaceRef = useRef(null)
   const [videoView, setVideoView] = useState(false)
   const classic = new URLSearchParams(window.location.search).get('home') === 'classic'
   useLayoutEffect(() => {
@@ -35,6 +38,107 @@ export default function UniversalGuidePlayer({ onProductSelect, ...playerProps }
       window.removeEventListener('resize', resizeHome)
     }
   }, [classic, playerProps.paneOpen, videoView])
+  // The original video lived *inside* .ug-home-frame, which is animated with
+  // transform:scale when QuickBite opens. Samsung's hardware decoder can render
+  // black frames or suspend that transformed media layer. Keep one video
+  // element mounted as a sibling of the animated guide. Only its screen-space
+  // box follows the tile; opening the panel NEVER unmounts or reloads it.
+  useLayoutEffect(() => {
+    if (classic) return
+    const root = rootRef.current
+    const tile = videoAnchorRef.current
+    const surface = videoSurfaceRef.current
+    const stage = homeStageRef.current
+    if (!root || !tile || !surface || !stage) return
+
+    let active = true
+    let frame = 0
+    let animateUntil = 0
+
+    function reposition() {
+      if (!active) return
+      const bounds = root.getBoundingClientRect()
+      const homeFrame = root.querySelector('.ug-home-frame')
+      const feed = root.querySelector('.ug-feed')
+      const hidden = !videoView &&
+        (Boolean(tile.closest('.ug-hidden-row')) || !tile.getClientRects().length)
+      const measured = videoSurfaceGeometry({
+        root: bounds,
+        tile: tile.getBoundingClientRect(),
+        // The untransformed video must still respect home-feed scrolling
+        // and the rounded home frame's visible bounds.
+        clips: [stage.getBoundingClientRect(),
+          homeFrame?.getBoundingClientRect(), feed?.getBoundingClientRect()],
+        fullscreen: videoView,
+        fullscreenWidth: paneOpen ? stage.getBoundingClientRect().width : null,
+        hidden,
+      })
+      if (!measured) {
+        surface.style.visibility = 'hidden'
+        return
+      }
+      const next = {
+        left: `${measured.left}px`,
+        top: `${measured.top}px`,
+        width: `${measured.width}px`,
+        height: `${measured.height}px`,
+        clipPath: measured.clipPath,
+        visibility: 'visible',
+      }
+      // Avoid needless surface invalidation on every animation frame.
+      for (const [property, value] of Object.entries(next)) {
+        if (surface.style[property] !== value) surface.style[property] = value
+      }
+    }
+    function tick() {
+      frame = 0
+      reposition()
+      if (active && performance.now() < animateUntil) {
+        frame = requestAnimationFrame(tick)
+      }
+    }
+    function followTransition() {
+      animateUntil = performance.now() + 450
+      if (!frame) frame = requestAnimationFrame(tick)
+    }
+    function scheduleOneFrame() {
+      if (!frame) frame = requestAnimationFrame(tick)
+    }
+    const observer = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(followTransition) : null
+    for (const element of [root, stage, tile, root.querySelector('.ug-feed'),
+      root.querySelector('.ug-home-frame')]) {
+      if (element) observer?.observe(element)
+    }
+    const firstRow = tile.closest('.ug-first-row')
+    const mutation = firstRow && typeof MutationObserver !== 'undefined'
+      ? new MutationObserver(scheduleOneFrame) : null
+    if (mutation) mutation.observe(firstRow, {
+      attributes: true, attributeFilter: ['class', 'style'],
+    })
+
+    root.addEventListener('scroll', scheduleOneFrame, true)
+    root.addEventListener('focusin', followTransition, true)
+    root.addEventListener('focusout', followTransition, true)
+    root.addEventListener('transitionrun', followTransition, true)
+    root.addEventListener('transitionend', scheduleOneFrame, true)
+    window.addEventListener('resize', followTransition)
+    reposition()
+    followTransition()
+    return () => {
+      active = false
+      if (frame) cancelAnimationFrame(frame)
+      observer?.disconnect()
+      mutation?.disconnect()
+      root.removeEventListener('scroll', scheduleOneFrame, true)
+      root.removeEventListener('focusin', followTransition, true)
+      root.removeEventListener('focusout', followTransition, true)
+      root.removeEventListener('transitionrun', followTransition, true)
+      root.removeEventListener('transitionend', scheduleOneFrame, true)
+      window.removeEventListener('resize', followTransition)
+    }
+  }, [classic, playerProps.paneOpen, videoView])
+
   useLayoutEffect(() => {
     if (videoView && !playerProps.paneOpen) rootRef.current?.focus({ preventScroll: true })
   }, [videoView, playerProps.paneOpen])
@@ -50,7 +154,7 @@ export default function UniversalGuidePlayer({ onProductSelect, ...playerProps }
       if (event.defaultPrevented || event.target?.isContentEditable ||
         ['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target?.tagName)) return
       const key = tvRemoteKey(event)
-      if (['MediaPlayPause', 'MediaPlay', 'MediaPause', ' '].includes(key)) {
+      if (!playerProps.paneOpen && ['MediaPlayPause', 'MediaPlay', 'MediaPause', ' '].includes(key)) {
         event.preventDefault()
         event.stopPropagation()
         if (!event.repeat) {
@@ -121,8 +225,13 @@ export default function UniversalGuidePlayer({ onProductSelect, ...playerProps }
       <div ref={homeStageRef} className="ug-home-stage">
         <div className="ug-home-frame">
           <UniversalGuideHome paneOpen={paneOpen} videoView={videoView} onProductSelect={onProductSelect} onOpenVideo={() => setVideoView(true)}
-            nowPlaying={<VideoPlayer {...playerProps} commerceOverlay={null} onFullscreenChange={undefined} />} />
+            videoAnchorRef={videoAnchorRef} />
         </div>
+      </div>
+      {/* This single untransformed media surface survives every guide resize,
+          fullscreen switch and QuickBite open/close. Only its box changes. */}
+      <div ref={videoSurfaceRef} className="ug-live-video-surface">
+        <VideoPlayer {...playerProps} compactMode commerceOverlay={null} onFullscreenChange={undefined} />
       </div>
       <div className={`video-player ug-commerce-host ${paneOpen ? 'vp-commerce-open' : ''}`}>
         <div className="vp-commerce-overlay" onScroll={event => {
