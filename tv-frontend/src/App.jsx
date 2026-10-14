@@ -142,7 +142,7 @@ setQrComplete(false)
 setPaneOpen(false)
 }
 }, [qrTarget, hasConnectedMerchant, externalRequest, activeOrder, loginContinuation.clear])
-const seedTracking = useCallback((envelope) => {
+const seedTracking = useCallback((envelope, { announce = true } = {}) => {
 const tracking = trackingFromEnvelope(envelope)
 if (!tracking) return envelope
 const qr = paymentQrFromEnvelope(envelope, { allowImageFallback: !confirmedCodCheckout(envelope) })
@@ -165,7 +165,7 @@ const id = payload.session_id || payload.id || saved || ''
 setSessionId(id)
 if (id) localStorage.setItem('ca_sid', id)
 setPlatforms(payload.platforms || [])
-if (payload.tracking) seedTracking(payload)
+if (payload.tracking) seedTracking(payload, { announce: false })
 })
 .catch((error) => {
 if (!cancelled) {
@@ -378,10 +378,12 @@ function selectHomeProduct(id) {
 async function runSearchBanner(plan) {
   setPaneOpen(true)
   const pending = { name: 'search', confidence: 0.99, alternatives: [], journey: 'new-search',
-    slots: { query: plan.label, vertical: plan.vertical }, pending: true }
+    slots: { query: plan.label, vertical: plan.vertical,
+      providers: plan.provider ? [plan.provider] : [] }, pending: true }
   issueRequest({ type: 'intent', intent: pending, envelope: null })
   try {
-    const envelope = await sendSilent(plan.prompt, { searchVertical: plan.vertical, fresh: true })
+    const envelope = await sendSilent(plan.prompt, { searchVertical: plan.vertical,
+      provider: plan.provider || null, fresh: true })
     issueRequest({ type: 'intent', intent: { ...pending, pending: false }, envelope })
   } catch (error) {
     if (error.kind === 'superseded-search') return
