@@ -13,10 +13,15 @@ export default function VideoPlayer({
   commerceOverlay,
   commerceRef,
   onFullscreenChange,
+  compactMode = false,
 }) {
   const rootRef = useRef(null)
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
+  // Remember explicit user play/pause intent so opening a shopping panel
+  // cannot unpause content the viewer intentionally stopped.
+  const shouldPlayRef = useRef(true)
+  const lastAutoResumeRef = useRef(0)
   const [videoSourceKind, setVideoSourceKind] = useState('resolving')
   const [videoSrc, setVideoSrc] = useState('')
   const [mediaError, setMediaError] = useState(false)
@@ -44,7 +49,7 @@ export default function VideoPlayer({
 
   const startPlayback = useCallback(async () => {
     const video = videoRef.current
-    if (!video || !videoSrc || mediaError) return
+    if (!video || !videoSrc || mediaError || !shouldPlayRef.current) return
     try {
       await video.play()
     } catch (error) {
@@ -61,8 +66,10 @@ export default function VideoPlayer({
     const video = videoRef.current
     if (!video) return
     if (video.paused) {
+      shouldPlayRef.current = true
       try { await video.play() } catch { /* Source may still be loading. */ }
     } else {
+      shouldPlayRef.current = false
       video.pause()
     }
   }, [])
@@ -118,6 +125,7 @@ export default function VideoPlayer({
         startPlayback()
       } else if (key === 'MediaPause' || key === 'MediaStop') {
         event.preventDefault()
+        shouldPlayRef.current = false
         videoRef.current?.pause()
       } else if (key === 'MediaRewind' || key === 'ArrowLeft') {
         event.preventDefault()
@@ -139,6 +147,27 @@ export default function VideoPlayer({
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [commerceRef, onCloseShop, onOpenShop, paneOpen, seekBy, startPlayback, toggleFullscreen, toggleMute, togglePlay])
+
+  // Tizen may briefly suspend its hardware video surface while a panel
+  // layout is changing. Resume only when playback was already intended,
+  // never in response to a deliberate pause or while the page is hidden.
+  useEffect(() => {
+    if (!paneOpen || !shouldPlayRef.current) return
+    const frame = requestAnimationFrame(() => {
+      if (videoRef.current?.paused && shouldPlayRef.current) startPlayback()
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [paneOpen, startPlayback])
+
+  function resumeUnexpectedPause() {
+    if (!paneOpen || !shouldPlayRef.current || document.hidden) return
+    const now = Date.now()
+    if (now - lastAutoResumeRef.current < 1500) return
+    lastAutoResumeRef.current = now
+    requestAnimationFrame(() => {
+      if (videoRef.current?.paused && shouldPlayRef.current) startPlayback()
+    })
+  }
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -181,7 +210,7 @@ export default function VideoPlayer({
   return (
     <div
       ref={rootRef}
-      className={`video-player${paneOpen ? ' vp-commerce-open' : ''}`}
+      className={`video-player${paneOpen && !compactMode ? ' vp-commerce-open' : ''}`}
       style={{ '--vp-ambient-rgb': ambientColor, '--vp-video-aspect': videoAspect }}
     >
       <div className="vp-stage">
@@ -201,6 +230,7 @@ export default function VideoPlayer({
             if (videoWidth && videoHeight) setVideoAspect(`${videoWidth} / ${videoHeight}`)
           }}
           onCanPlay={startPlayback}
+          onPause={resumeUnexpectedPause}
           onEnded={(event) => {
             event.currentTarget.currentTime = 0
             startPlayback()
