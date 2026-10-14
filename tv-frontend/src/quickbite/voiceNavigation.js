@@ -42,6 +42,18 @@ add({ type: 'track' }, [
   'check order status', 'check my order status', 'track delivery',
 ])
 
+// Text-to-speech controls are local; they must not be sent to the commerce LLM.
+add({ type: 'speech', on: true }, [
+  'voice on', 'turn voice on', 'turn on voice', 'enable voice',
+  'unmute voice', 'unmute', 'speak responses', 'read answers aloud',
+  'voice replies on', 'turn on voice replies',
+])
+add({ type: 'speech', on: false }, [
+  'voice off', 'turn voice off', 'turn off voice', 'disable voice',
+  'mute voice', 'mute', 'stop speaking', 'stop talking',
+  'voice replies off', 'turn off voice replies',
+])
+
 const foodCategories = {
   snacks: ['snack', 'snacks', 'order snacks', 'get snacks', 'buy snacks', 'show snacks', 'show me snacks', 'i want snacks', 'i want a snack', 'quick snack', 'something to snack on'],
   desserts: ['dessert', 'desserts', 'sweet', 'sweets', 'order dessert', 'order desserts', 'get dessert', 'show desserts', 'something sweet', 'i want something sweet', 'i want dessert'],
