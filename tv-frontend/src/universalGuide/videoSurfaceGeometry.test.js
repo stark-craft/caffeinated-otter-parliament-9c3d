@@ -7,7 +7,7 @@ const video = {left:74,top:426,width:340,height:192}
 
 test('Now Playing video follows the home tile precisely without CSS transforms', () => {
   assert.deepEqual(videoSurfaceGeometry({root:screen,tile:video,clips:[screen]}), {
-    left:74,top:426,width:340,height:192,clipPath:'inset(0px 0px 0px 0px)',
+    left:74,top:426,width:340,height:192,clipPath:'none',
   })
 })
 
@@ -39,4 +39,9 @@ test('Offscreen tile never floats on top of unrelated recommended cards', () => 
   assert.equal(videoSurfaceGeometry({root:screen,tile:{
     left:74,top:-300,width:340,height:192,
   },clips:[screen]}),null)
+})
+
+test('full-video shopping view shrinks the media to the left stage without a transform', () => {
+  const surface = videoSurfaceGeometry({root:screen,fullscreen:true,fullscreenWidth:1340})
+  assert.deepEqual(surface,{left:0,top:0,width:1340,height:1080,clipPath:'none'})
 })
