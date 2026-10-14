@@ -22,6 +22,16 @@ export const QUICK_PROMPTS = Object.freeze([
     prompt: 'I want to make poha for two people. Find the ingredients and quantities from Swiggy Instamart and add them to my Swiggy Instamart grocery cart.',
   },
   {
+    id: 'ten-samosa-mithaas-zomato', vertical: 'food', category: 'Zomato',
+    title: '10 samosas · Mithaas', description: 'Test quantity and restaurant',
+    prompt: 'Order 10 samosa from Mithaas from ZOMATO',
+  },
+  {
+    id: 'eight-samosa-hadiram-zomato', vertical: 'food', category: 'Zomato',
+    title: '8 samosas · Hadiram', description: 'Test quantity and restaurant',
+    prompt: 'Order 8 samosa from ZOMATO from hadiram',
+  },
+  {
     id: 'pizza-zomato', vertical: 'food', category: 'Zomato',
     title: 'Pizza near me', description: 'Find pizza restaurants',
     prompt: 'Find pizza restaurants on Zomato near me and show available choices.',
