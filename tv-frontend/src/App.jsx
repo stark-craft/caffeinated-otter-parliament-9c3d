@@ -19,8 +19,15 @@ import { buildView, viewForRequest } from './quickbite/viewContext.js'
 import { deriveIntent } from './quickbite/deriveIntent.js'
 import { routeIntent } from './quickbite/intents.js'
 import { newVoiceTrace, voiceError, voiceLog, voiceWarn } from './quickbite/voiceDiagnostics.js'
-import { paymentQrFromEnvelope, trackingFromEnvelope } from './quickbite/envelopes.js'
+import { cartFromEnvelope, paymentQrFromEnvelope, trackingFromEnvelope } from './quickbite/envelopes.js'
 import { confirmedCodCheckout, paymentMethodFromEnvelope } from './quickbite/payMode.js'
+import { orderPlacedLine, setSpeechEnabled, speak, trackingAnnouncement } from './quickbite/speech.js'
+import { trackingPhase, trackingPhaseRank } from './quickbite/tracking.js'
+import { searchBannerPlan } from './universalGuide/searchBanners.js'
+/* Speech is opt-in and retains the frontend team's TV voice diagnostics. */
+function say(text, { lang = 'en-IN', traceId = null, reason = '' } = {}) {
+  return speak(text, { lang, log: (outcome, detail) => voiceLog(traceId, `TTS ${outcome}${reason ? ` (${reason})` : ''}`, detail) })
+}
 const samsungVoiceTargets = getHiddenVoiceTargets()
 const SamsungVoiceTargetRegistry = memo(function SamsungVoiceTargetRegistry({ transcriptRef }) {
 return (
@@ -142,6 +149,7 @@ const qr = paymentQrFromEnvelope(envelope, { allowImageFallback: !confirmedCodCh
 const payment = paymentMethodFromEnvelope(envelope)
 orderSeq.current += 1
 setActiveOrder({ seq: orderSeq.current, tracking, qr, payment })
+if (announce) say(orderPlacedLine({ qr, payment, amount: cartFromEnvelope(envelope)?.total }), { reason: 'order placed' })
 setPaneOpen(true)
 return envelope
 }, [])
@@ -231,7 +239,7 @@ active = false
 clearInterval(interval)
 }
 }, [paneOpen, qrRequired, qrSessionId, qrTarget, qrProvider, refreshMerchantStatuses, refreshCommerceSession])
-const send = useCallback(async (text, { silent = false, voiceTraceId = null, searchIntent = null, searchVertical = null, provider = null } = {}) => {
+const send = useCallback(async (text, { silent = false, voiceTraceId = null, searchIntent = null, searchVertical = null, provider = null, lang = 'en-IN', fresh = false } = {}) => {
 const message = String(text ?? input).trim()
 if (!message) {
 if (voiceTraceId) voiceWarn(voiceTraceId, 'Empty /chat message skipped', { text })
@@ -253,14 +261,30 @@ try {
 const currentView = buildView({ ...(panelState || {}), activeOrder })
 const derived = searchVertical ? deriveIntent(message, { ...currentView, vertical: searchVertical }) : null
 const intent = searchIntent || (derived ? { ...derived, name: 'search', journey: 'new-search', slots: { ...derived.slots, vertical: searchVertical } } : null)
+// Check the actual named merchant before any backend request, even when another
+// food/grocery merchant is connected. This also covers panel widget/cart actions.
+const intendedProviders = [...new Set([
+  ...requestedProviders(message),
+  ...(intent?.slots?.providers || []),
+  ...(provider ? [provider] : []),
+])].filter(id => Boolean(PROVIDERS[id]))
+const missing = intendedProviders.find(id =>
+  !merchantConnected(merchantStatusesRef.current, platforms, PROVIDERS[id].merchant))
+if (missing) {
+  requestQrLogin(PROVIDERS[missing].vertical, missing)
+  const error = new Error(`Connect ${PROVIDERS[missing].label} using the login QR to continue.`)
+  error.kind = 'provider-login-required'
+  error.provider = missing
+  throw error
+}
 sequence = intent ? ++discoverySeqRef.current : null
 const view = intent ? viewForRequest(currentView, intent) : currentView
 const scope = effectivePlatforms(merchantStatusesRef.current, platforms)
 const outbound = intent ? searchPrompt(message, intent.slots?.vertical, scope) : message
-const expected = intent || { slots: { providers: provider ? [provider] : requestedProviders(message) } }
+const expected = { slots: { providers: intendedProviders } }
 commerceLog('request', { userSaid: message, intent, currentView, request: { session_id: sessionId, message: outbound, view }, merchantStatuses: merchantStatusesRef.current, sessionPlatforms: platforms, effectiveScope: scope, expectedProviders: expected.slots?.providers })
 if (voiceTraceId) voiceLog(voiceTraceId, 'Frontend → backend /api/chat request (LLM input)', { message: outbound, view, silent })
-const response = await sendChat(sessionId, outbound, view)
+const response = await sendChat(sessionId, outbound, view, { fresh })
 if (voiceTraceId) voiceLog(voiceTraceId, 'Backend /api/chat response (envelope; not raw internal LLM output)', response)
 commerceLog('response', { expectedProviders: expected.slots?.providers, ...responseAttribution(response) })
 // Preserve real order evidence even if an unexpected provider or an older
@@ -275,10 +299,19 @@ throw error
 }
 const problem = providerResponseProblem(expected, response)
 if (problem) {
-commerceLog('provider-error', problem)
-const error = new Error(problem.message)
-Object.assign(error, problem)
-throw error
+  commerceLog('provider-error', problem)
+  if (problem.kind === 'provider-unavailable' && problem.provider && PROVIDERS[problem.provider]) {
+    // An alternative-store backend response is not a login method.
+    requestQrLogin(PROVIDERS[problem.provider].vertical, problem.provider)
+  }
+  const error = new Error(problem.message)
+  Object.assign(error, problem)
+  throw error
+}
+/* Speak only a voice-originated response; order confirmation is announced
+   separately by seedTracking, and remote button presses remain silent. */
+if (voiceTraceId && !trackingFromEnvelope(response)) {
+  say(response?.text || response?.payload?.title, { lang, traceId: voiceTraceId, reason: 'voice reply' })
 }
 if (!silent || response?.widget === 'message') {
 setMessages((current) => [...current, { role: 'assistant', ...response }])
@@ -294,28 +327,67 @@ throw error
 } finally {
 if (sequence === null || sequence === discoverySeqRef.current) setLoading(false)
 }
-}, [input, seedTracking, sessionId, activeOrder, panelState, platforms])
+}, [input, seedTracking, sessionId, activeOrder, panelState, platforms, requestQrLogin])
 const sendSilent = useCallback((message, options = {}) => send(message, { ...options, silent: true }), [send])
 const updateTrackingDescriptor = useCallback((tracking) => {
 setActiveOrder((current) => current ? { ...current, tracking } : current)
+}, [])
+/* Announce transitions once. The first snapshot is a baseline rather than an
+   interruption of the freshly-placed order announcement. */
+const spokenPhaseRef = useRef(null)
+const announceTracking = useCallback((snapshot, seq) => {
+  if (!snapshot || !seq) return
+  const phase = trackingPhase(snapshot)
+  const { next, line } = trackingAnnouncement(spokenPhaseRef.current,
+    { seq, phase, rank: trackingPhaseRank(phase) })
+  spokenPhaseRef.current = next
+  if (line) say(line, { reason: `tracking ${phase}` })
 }, [])
 const trackingState = useLiveOrderTracking({
 sessionId,
 activeOrder,
 onDescriptorChange: updateTrackingDescriptor,
 })
+useEffect(() => {
+  announceTracking(trackingState.snapshot, activeOrder?.seq)
+}, [trackingState.snapshot, activeOrder?.seq, announceTracking])
 function issueRequest(request) {
 requestSeq.current += 1
 const routed = { ...request, nonce: requestSeq.current }
 if (routed.voiceTraceId) voiceLog(routed.voiceTraceId, 'App → QuickBite panel request', routed)
 setExternalRequest(routed)
 }
-const selectHomeProduct = useProductShortcut({
-groceryUnlocked, paneOpen, pairingActive: qrTarget === 'grocery',
-onNavigate: issueRequest, onRequestLogin: requestQrLogin,
-onOpen: () => setPaneOpen(true),
-loginContinuation,
+const selectGroceryShortcut = useProductShortcut({
+  groceryUnlocked, paneOpen, pairingActive: qrTarget === 'grocery',
+  onNavigate: issueRequest, onRequestLogin: requestQrLogin,
+  onOpen: () => setPaneOpen(true),
+  loginContinuation,
 })
+/* Preserve the October 14 search-banner flow provided from Windows. */
+function selectHomeProduct(id) {
+  const plan = searchBannerPlan(id, merchant => merchantConnected(merchantStatuses, platforms, merchant))
+  if (!plan) { selectGroceryShortcut(id); return }
+  loginContinuation.clear()
+  if (plan.login) {
+    loginContinuation.remember({ kind: 'search-banner', id, vertical: plan.vertical, provider: plan.provider })
+    requestQrLogin(plan.vertical, plan.provider)
+    return
+  }
+  runSearchBanner(plan)
+}
+async function runSearchBanner(plan) {
+  setPaneOpen(true)
+  const pending = { name: 'search', confidence: 0.99, alternatives: [], journey: 'new-search',
+    slots: { query: plan.label, vertical: plan.vertical }, pending: true }
+  issueRequest({ type: 'intent', intent: pending, envelope: null })
+  try {
+    const envelope = await sendSilent(plan.prompt, { searchVertical: plan.vertical, fresh: true })
+    issueRequest({ type: 'intent', intent: { ...pending, pending: false }, envelope })
+  } catch (error) {
+    if (error.kind === 'superseded-search') return
+    issueRequest({ type: 'intent', intent: { ...pending, pending: false, error: error.message }, envelope: null })
+  }
+}
 /* Quick actions predate the intent router and still emit the four legacy
 request types. Adapting them here means the panel has exactly one input
 shape, and nothing in quickActions.js has to change. */
@@ -369,6 +441,13 @@ const deferVoice = (vertical, provider = null) => {
 }
 voiceLog(voiceTraceId, 'Current view snapshot for voice routing', view)
 const voiceCommand = findVoiceCommand(transcript)
+// Speech controls are available without merchant pairing.
+if (voiceCommand?.type === 'speech') {
+  voiceLog(voiceTraceId, 'Voice replies toggled', { on: voiceCommand.on })
+  setSpeechEnabled(voiceCommand.on)
+  if (voiceCommand.on) say('Voice replies are on.', { lang: language, traceId: voiceTraceId, reason: 'unmute' })
+  return
+}
 voiceLog(voiceTraceId, 'Pre-backend navigation label lookup', { matched: Boolean(voiceCommand), command: voiceCommand })
 if (voiceCommand) {
   const requestedVertical = ['home', 'track'].includes(voiceCommand.type) ? null
@@ -395,9 +474,14 @@ if (voiceCommand) {
 }
 const local = withGroceryPurchaseContext(transcript, deriveIntent(transcript, { ...view, language }, null))
 voiceLog(voiceTraceId, 'Local intent derivation', local)
-const explicitProvider = local.slots?.providers?.length > 0
+// Parse the original utterance as well: not every intent name has providers
+// in its slots (notably local navigation and cart-related commands).
+const spokenProviders = [...new Set([
+  ...requestedProviders(transcript), ...(local.slots?.providers || []),
+])]
+const explicitProvider = spokenProviders.length > 0
 const requestedVertical = local.slots?.vertical === 'grocery' ? 'grocery' : 'food'
-const missingProvider = (local.slots?.providers || []).find(id => PROVIDERS[id] &&
+const missingProvider = spokenProviders.find(id => PROVIDERS[id] &&
   !merchantConnected(merchantStatuses, platforms, PROVIDERS[id].merchant))
 if (missingProvider) {
 deferVoice(PROVIDERS[missingProvider].vertical, missingProvider)
@@ -421,9 +505,10 @@ confidence floor were all bypassed for any utterance that fetched: the
 lock raised "Payment in progress. Cancel the order?" and the arriving
 envelope then cleared that very strip and navigated away mid-payment. */
 const needsBackend = ['search', 'refine', 'compare'].includes(local.name)
+const cartMutation = ['remove_item', 'change_qty'].includes(local.name) && !view.cartEditable
 const gate = routeIntent(local, view)
-voiceLog(voiceTraceId, 'Intent router decision', { intent: local.name, needsBackend, gate })
-if (!needsBackend || gate.strip) {
+voiceLog(voiceTraceId, 'Intent router decision', { intent: local.name, needsBackend, cartMutation, gate })
+if (!(needsBackend || cartMutation) || gate.strip) {
 setPaneOpen(true)
 voiceLog(voiceTraceId, 'Intent handled locally or held by confirmation strip; no /chat call', { intent: local.name, strip: gate.strip })
 issueRequest({ type: 'intent', intent: local, envelope: null, voiceTraceId })
@@ -443,6 +528,16 @@ and it ran against the pre-search view, which is now stale. */
 issueRequest({ type: 'intent', intent: { ...local, pending: false }, envelope, voiceTraceId, utterance: transcript })
 } catch (error) {
 if (error.kind === 'superseded-search') return
+if (['provider-login-required', 'provider-unavailable'].includes(error.kind) && PROVIDERS[error.provider]) {
+  // Resume only the discovery request once the *specific* merchant connects.
+  // Never automatically replay payment, cart mutations or checkout.
+  if (needsBackend) {
+    deferVoice(PROVIDERS[error.provider].vertical, error.provider)
+  } else {
+    requestQrLogin(PROVIDERS[error.provider].vertical, error.provider)
+  }
+  return
+}
 voiceError(voiceTraceId, 'Voice backend/search routing failed', error)
 issueRequest({ type: 'intent', intent: { ...local, pending: false, error: error.message, reconnectProvider: error.provider || local.slots?.provider }, envelope: null, voiceTraceId, utterance: transcript })
 }
@@ -450,6 +545,7 @@ issueRequest({ type: 'intent', intent: { ...local, pending: false, error: error.
 samsungTranscriptRef.current = handleTranscript
 continuationResumeRef.current = action => {
   if (action.kind === 'banner') issueRequest(action.request)
+  else if (action.kind === 'search-banner') selectHomeProduct(action.id)
   else if (action.kind === 'voice') {
     handleTranscript(action.transcript, action.language, action.source, action.voiceTraceId, action.view)
   }
