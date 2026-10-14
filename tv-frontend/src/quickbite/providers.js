@@ -46,10 +46,16 @@ export function responseProviders(envelope) {
   const payload = envelope?.payload || {}
   const vertical = (payload.kind || payload.data?.kind) === 'grocery' || ['basket', 'basket_stocked'].includes(envelope?.widget) ? 'grocery' : 'food'
   const found = new Set()
+  // A bare Swiggy label is ambiguous: prefer any explicit Food/Instamart label.
+  let bareSwiggy = false
   const visit = (value, depth = 0) => {
     if (!value || typeof value !== 'object' || depth > 6) return
     if (Array.isArray(value)) { value.slice(0, 100).forEach(item => visit(item, depth + 1)); return }
     for (const key of ['platform', 'server', 'provider']) {
+      if (/^\s*swiggy\s*$/iu.test(String(value[key] || ''))) {
+        bareSwiggy = true
+        continue
+      }
       const id = providerId(value[key], vertical)
       if (id) found.add(id)
     }
@@ -58,6 +64,9 @@ export function responseProviders(envelope) {
   visit(envelope)
   const widgetProvider = providerId(envelope?.vendor_widget?.server, vertical)
   if (widgetProvider) found.add(widgetProvider)
+  if (bareSwiggy && !found.has('swiggy_food') && !found.has('swiggy_instamart')) {
+    found.add(providerId('swiggy', vertical))
+  }
   return [...found]
 }
 
@@ -65,15 +74,24 @@ export function providerResponseProblem(intent, envelope) {
   const requested = intent?.slots?.providers || []
   if (!requested.length) return null
   const returned = responseProviders(envelope)
-  const labels = ids => ids.map(id => PROVIDERS[id].label).join(' and ')
+  const labels = ids => ids.map(id => PROVIDERS[id]?.label || id).join(' and ')
+  const text = [...new Set([
+    envelope?.text, envelope?.payload?.title, envelope?.payload?.message,
+    envelope?.payload?.data?.message,
+  ].filter(Boolean))].join(' ')
+  // Authentication failures may offer alternative providers in actions. They
+  // must reopen the *requested* provider's QR, not show those alternatives as
+  // ordinary search results or report a misleading provider mismatch.
+  const loginFailure = /not\s+(?:logged[ -]?in|connected|authenticated|authorized)|login\s+required|sign[ -]?in\s+required|(?:unavailable|not available)\s+in\s+this\s+session|connect\s+(?:your|the)\s+(?:merchant|provider)/iu.test(text)
+  const mentioned = requestedProviders(text)
+  if (requested.length === 1 && loginFailure &&
+      (!mentioned.length || mentioned.includes(requested[0]))) {
+    return { kind: 'provider-unavailable', provider: requested[0],
+      message: text.trim() || `Connect ${labels(requested)} to continue.` }
+  }
   if (returned.some(id => !requested.includes(id))) {
     return { kind: 'provider-mismatch', provider: requested.length === 1 ? requested[0] : null,
       message: `${labels(requested)} was requested, but the backend returned ${labels(returned)}. Check the requested merchant connection or retry the search.` }
-  }
-  const text = [...new Set([envelope?.text, envelope?.payload?.title].filter(Boolean))].join(' ')
-  if (!returned.length && /not connected|unavailable in this session|not available in this session/i.test(text)) {
-    return { kind: 'provider-unavailable', provider: requested.length === 1 ? requested[0] : null,
-      message: text.trim() }
   }
   return null
 }
