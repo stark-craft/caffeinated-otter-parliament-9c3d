@@ -12,11 +12,11 @@ function rect(value) {
   return { left, top, right: left + width, bottom: top + height, width, height }
 }
 
-export function videoSurfaceGeometry({ root, tile, clips = [], fullscreen = false, hidden = false } = {}) {
+export function videoSurfaceGeometry({ root, tile, clips = [], fullscreen = false, fullscreenWidth = null, hidden = false } = {}) {
   const bounds = rect(root)
   if (!bounds || !bounds.width || !bounds.height) return null
   if (fullscreen) return {
-    left: 0, top: 0, width: bounds.width, height: bounds.height,
+    left: 0, top: 0, width: fullscreenWidth == null ? bounds.width : Math.max(0, number(fullscreenWidth)), height: bounds.height,
     clipPath: 'none',
   }
   const target = rect(tile)
@@ -45,6 +45,7 @@ export function videoSurfaceGeometry({ root, tile, clips = [], fullscreen = fals
     top: target.top - bounds.top,
     width: target.width,
     height: target.height,
-    clipPath: `inset(${topClip}px ${rightClip}px ${bottomClip}px ${leftClip}px)`,
+    clipPath: topClip || rightClip || bottomClip || leftClip
+      ? `inset(${topClip}px ${rightClip}px ${bottomClip}px ${leftClip}px)` : 'none',
   }
 }
