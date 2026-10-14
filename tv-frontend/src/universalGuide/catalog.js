@@ -7,12 +7,16 @@ export const HERO_SLIDES = [
     image: './universal-guide/images/hero-entertainment.jpg',
     fallback: 'https://image.tmdb.org/t/p/original/xZFbIlSl93YbdOLuKBfaSAihck4.jpg',
     placeholder: './universal-guide/entertainment.svg', theme: 'entertainment' },
-  { id: 'milk', title: 'Amul Milk · 1 L', eyebrow: 'Quick Shop · Grocery',
-    description: 'Choose your quantity and make it an everyday essential.', label: 'Shop Amul milk',
-    image: './universal-guide/images/hero-milk.jpg', fallback: './universal-guide/milk.svg', theme: 'milk' },
-  { id: 'cola', title: 'Coca-Cola', eyebrow: 'Quick Shop · Grocery',
-    description: 'Choose your quantity and settle in for the evening.', label: 'Shop Coca-Cola',
-    image: './universal-guide/images/hero-cola.jpg', fallback: './universal-guide/cola.svg', theme: 'cola' },
+  { id: 'match-night', title: 'Match-night cravings', eyebrow: 'Quick Shop · Food',
+    description: 'Good food for the big game, from a connected restaurant.',
+    label: 'Find match-night food',
+    image: './universal-guide/images/hero-match-night.jpg',
+    fallback: './universal-guide/chips.svg', theme: 'food' },
+  { id: 'grocery-basket', title: 'Match-night essentials', eyebrow: 'Quick Shop · Grocery',
+    description: 'Snacks and drinks for the whole evening, all from Zepto.',
+    label: 'Browse grocery essentials',
+    image: './universal-guide/images/hero-grocery-basket.jpg',
+    fallback: './universal-guide/milk.svg', theme: 'grocery' },
 ]
 
 export function groceryLandingRequest(productId) {
