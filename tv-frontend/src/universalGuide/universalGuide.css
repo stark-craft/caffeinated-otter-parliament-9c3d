@@ -77,3 +77,81 @@
 @media (prefers-reduced-motion: reduce) { .ug-home-frame, .ug-player::before, .ug-home .hero-banner, .ug-home .hero-slide { transition: none; }.ug-home .section { animation: none; } }
 @media (max-width: 900px) { .ug-home .split-row-section .split-row-container { grid-template-columns: minmax(0, 1fr); gap: 16px; }.ug-home .split-row-section .split-divider { display: none; }.ug-home .split-column-left { width: auto; min-width: 0; } }
 @media (max-width: 700px) { .ug-player { --vp-panel-width: min(360px, 54vw); } }
+
+
+/* ===============================================================
+   NOW PLAYING — UNTRANSFORMED, PERSISTENT VIDEO SURFACE
+   Home content still squeezes under the shop panel, but the actual
+   <video> is outside .ug-home-frame's transform/overflow stack.
+   Its left/top/width/height are measured from the Now Playing tile.
+   =============================================================== */
+.ug-player .ug-live-video-surface {
+  position: absolute;
+  z-index: 2;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  visibility: hidden;
+  pointer-events: none;
+  background: #000;
+  border-radius: 0;
+  transform: none !important;
+  transition: none !important;
+}
+
+.ug-player .ug-live-video-surface .video-player {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 0;
+  min-height: 0;
+  aspect-ratio: auto;
+  overflow: visible;
+  isolation: auto;
+  border-radius: 0;
+  box-shadow: none;
+  background: #000;
+}
+
+.ug-player .ug-live-video-surface .vp-stage,
+.ug-player .ug-live-video-surface .vp-viewing-area {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 0;
+  min-height: 0;
+  max-height: none;
+  aspect-ratio: auto;
+  border-radius: 0;
+  box-shadow: none;
+  transition: none;
+}
+
+.ug-player .ug-live-video-surface .vp-media {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+  object-fit: contain !important;
+}
+
+.ug-player .ug-live-video-surface .vp-commerce-overlay {
+  display: none;
+}
+
+/* Panel and QR always remain above the floating video. */
+.ug-player .ug-commerce-host.video-player {
+  z-index: 3;
+}
+
+.ug-player .ug-video-back {
+  z-index: 4;
+}
+
+/* The launcher stays in the home UI and receives clicks through
+   the pointer-events:none video surface. */
+.ug-player .ug-video-tile {
+  pointer-events: auto;
+}
