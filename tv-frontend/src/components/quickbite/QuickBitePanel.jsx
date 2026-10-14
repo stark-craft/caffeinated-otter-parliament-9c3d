@@ -25,7 +25,9 @@ import {
 import {
   screenForTracking,
   trackingPhase,
-  trackingText,} from '../../quickbite/tracking.js'
+  trackingText,
+  trackingDisplay,
+  trackingFooter,} from '../../quickbite/tracking.js'
 import { backTarget, recordScreenVisit, takePreviousScreen, editableCartFocusAfterArrow } from '../../quickbite/navigation.js'
 import { agentCartEditPrompt, editAgentCartQuantity } from '../../quickbite/agentCart.js'
 import { cartClearRequestPrompt, cartReadbackPrompt, verifiedEmptyCart } from '../../quickbite/cartState.js'
@@ -50,6 +52,7 @@ import { confirmedCodCheckout, orderPlatform, paymentMethodFromEnvelope, payment
 import { voiceError, voiceLog, voiceWarn } from '../../quickbite/voiceDiagnostics.js'
 import { PROVIDERS, providerId, responseProviders } from '../../quickbite/providers.js'
 import { commerceLog } from '../../quickbite/commerceDiagnostics.js'
+import '../../styles/orderTrackingFooter.css'
 const ORDER_SCREENS = new Set([
   'pay',
   'payment-received',
@@ -212,58 +215,26 @@ function ProgressStepper({ stage }) {
       )}
     </div>
   )}
-function TrackingStepper({ phase }) {
-  const current =
-    phase === 'delivered'
-      ? 2
-      : phase === 'on-the-way'
-        ? 1
-        : 0
+function TrackingStepper({ phase, completedThrough }) {
+  const current = phase === 'delivered' ? 2 : phase === 'on-the-way' ? 1 : 0
+  const lastCompleted = Number.isInteger(completedThrough) ? completedThrough
+    : phase === 'delivered' ? 2 : phase === 'on-the-way' ? 1 : -1
   return (
-    <div
-      className="qb-tracking-steps"
-      aria-label={`Order stage: ${phase}`}
-    >
-      {[
-        'Preparing',
-        'On the way',
-        'Delivered',
-      ].map((label, index) => (
-        <div
-          className="qb-track-fragment"
-          key={label}
-        >
+    <div className="qb-tracking-steps" aria-label={`Order stage: ${phase}`}>
+      {['Preparing', 'On the way', 'Delivered'].map((label, index) => (
+        <div className="qb-track-fragment" key={label}>
           {index > 0 && (
-            <span
-              className={`qb-track-line ${
-                index <= current
-                  ? 'is-done'
-                  : ''
-              }`}
-            />
+            <span className={`qb-track-line ${index <= lastCompleted ? 'is-done' : ''}`} />
           )}
-          <div
-            className={`qb-track-step ${
-              index < current
-                ? 'is-done'
-                : ''
-            } ${
-              index === current
-                ? 'is-current'
-                : ''
-            }`}
-          >
-            <span className="qb-track-circle">
-              {index < current
-                ? '✓'
-                : index + 1}
-            </span>
+          <div className={`qb-track-step ${index <= lastCompleted ? 'is-done' : ''} ${index === current ? 'is-current' : ''}`}>
+            <span className="qb-track-circle">{index <= lastCompleted ? '✓' : index + 1}</span>
             <span>{label}</span>
           </div>
         </div>
       ))}
     </div>
-  )}
+  )
+}
 function LoadingState({ label }) {
   return (
     <div
@@ -471,6 +442,9 @@ const QuickBitePanel = forwardRef(
       ] || null
     // A QR-only checkout cannot inherit a previous order's tracking state.
     const trackingSnapshot = checkoutWithoutTracking ? null : trackingState?.snapshot
+    // Order status lives above the browsing journey; Back must not dismiss it.
+    // Only API-backed tracking exposes the compact footer, never an invented ETA.
+    const footerTracking = trackingFooter(trackingSnapshot, activeOrder?.tracking)
     const livePhase =
       trackingPhase(
         trackingSnapshot,
@@ -708,9 +682,9 @@ const QuickBitePanel = forwardRef(
     ), [screen, loadingPhase, screenKeys])
     useLayoutEffect(() => {
       if (!open || confirmStrip) return
-      const valid = [...contentKeys, 'back', 'exit']
+      const valid = [...contentKeys, 'back', ...(footerTracking ? ['order-status'] : []), 'exit']
       if (!valid.includes(storedFocusKey)) setFocusKey(contentKeys[0] || 'back')
-    }, [open, confirmStrip, contentKeys, storedFocusKey])
+    }, [open, confirmStrip, contentKeys, storedFocusKey, Boolean(footerTracking)])
     useImperativeHandle(
       ref,
       () => ({
@@ -2398,6 +2372,14 @@ const QuickBitePanel = forwardRef(
       }
     }
     function activate(key) {
+      if (key === 'order-status' && footerTracking) {
+        // Navigate, don't submit an order or restart checkout. The current
+        // API status remains visible and Back restores this browsing screen.
+        const target = footerTracking.screen
+        const nextFocus = ['preparing', 'on-the-way'].includes(target) ? 'refresh-tracking'
+          : target === 'pay' ? 'refresh-tracking' : 'shop-more'
+        return setScreenAndFocus(target, nextFocus)
+      }
       if (key.startsWith('quick-prompt-')) return runQuickPrompt(trailingIndex(key))
       if (key === 'reconnect-provider' && widgetModel?.reconnectProvider) {
         const selected = PROVIDERS[widgetModel.reconnectProvider]
@@ -2715,6 +2697,17 @@ const QuickBitePanel = forwardRef(
     function handleDirectionalKey(
       key,
     ) {
+      // Footer uses a horizontal three-stop remote path when tracking exists:
+      // Back → live order status → Exit. Without tracking: Back → Exit.
+      if ((key === 'ArrowLeft' || key === 'ArrowRight') &&
+          ['back', 'order-status', 'exit'].includes(focusKey)) {
+        const footerKeys = ['back', ...(footerTracking ? ['order-status'] : []), 'exit']
+        const index = Math.max(0, footerKeys.indexOf(focusKey))
+        const next = Math.min(footerKeys.length - 1,
+          Math.max(0, index + (key === 'ArrowRight' ? 1 : -1)))
+        setFocusKey(footerKeys[next])
+        return
+      }
       if (screen === 'agent-cart' && widgetModel?.editable && !loadingPhase) {
         const next = editableCartFocusAfterArrow(focusKey, key, widgetModel.lines.length)
         if (next) { setFocusKey(next); return }
@@ -3061,6 +3054,7 @@ const QuickBitePanel = forwardRef(
       const all = [
         ...contentKeys,
         'back',
+        ...(footerTracking ? ['order-status'] : []),
         'exit',
       ]
       let index =
@@ -4900,21 +4894,12 @@ const QuickBitePanel = forwardRef(
     function renderTrackingScreen(
       phase,
     ) {
-      const isDelivered =
-        phase ===
-        'delivered'
-      const title =
-        isDelivered
-          ? 'Delivered'
-          : phase ===
-            'on-the-way'
-            ? 'On the Way'
-            : 'Preparing your order'
+      const display = trackingDisplay(trackingSnapshot, phase)
+      const isDelivered = phase === 'delivered'
+      const title = display.title
       return (
         <>
-          <TrackingStepper
-            phase={phase}
-          />
+          <TrackingStepper phase={display.phase} completedThrough={display.completedThrough} />
           <div
             className={`qb-tracking-content ${
               isDelivered
@@ -4922,16 +4907,8 @@ const QuickBitePanel = forwardRef(
                 : ''
             }`}
           >
-            <div
-              className="qb-track-hero-icon"
-              aria-hidden="true"
-            >
-              {isDelivered
-                ? '🎉'
-                : phase ===
-                  'on-the-way'
-                  ? '🛵'
-                  : '👨‍🍳'}
+            <div className="qb-track-hero-icon" aria-hidden="true">
+              {display.icon}
             </div>
             <h1>{title}</h1>
             {isDelivered && (
@@ -4968,20 +4945,14 @@ const QuickBitePanel = forwardRef(
                   }
                 </h3>
               )}
-              {trackingText(
-                trackingSnapshot,
-              ) && (
+              {display.status && (
                 <p>
-                  {trackingText(
-                    trackingSnapshot,
-                  )}
+                  {display.status}
                 </p>
               )}
               {trackingSnapshot?.message &&
                 trackingSnapshot.message !==
-                trackingText(
-                  trackingSnapshot,
-                ) && (
+                display.status && (
                   <small>
                     {
                       trackingSnapshot.message
@@ -5239,6 +5210,20 @@ const QuickBitePanel = forwardRef(
               Back
             </small>
           </button>
+          {footerTracking && (
+            <button
+              type="button"
+              className={`qb-footer-tracking ${focusKey === 'order-status' ? 'is-focused' : ''}`}
+              {...focusableProps('order-status')}
+              aria-label={`View order tracking: ${footerTracking.status}${footerTracking.eta ? `, ETA ${footerTracking.eta}` : ''}`}
+              title="View order tracking"
+            >
+              <span className="qb-footer-tracking-status">{footerTracking.status}</span>
+              {footerTracking.eta && (
+                <span className="qb-footer-tracking-eta">{footerTracking.eta}</span>
+              )}
+            </button>
+          )}
           <button
             className={`qb-exit-button ${
               focusKey ===
