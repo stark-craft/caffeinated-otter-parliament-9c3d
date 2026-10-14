@@ -329,3 +329,23 @@
   text-align: center;
 }
 /* === END QUICKBITE THREE-CHOICE ORDER ACTIONS === */
+
+/* Vertical checkout choices — buttons stacked top to bottom.
+   Presentation only: no checkout, cancel, cart or quantity logic changes. */
+.qb-checkout-actions {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.qb-answer-actions.qb-action-row-three {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.qb-cart-actions {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.qb-cart-actions > button {
+  flex: 0 0 auto;
+  width: 100%;
+}
