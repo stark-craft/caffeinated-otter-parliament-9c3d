@@ -24,10 +24,10 @@ export default function UniversalGuideHome({ paneOpen, videoView, onProductSelec
   const firstRow = FIRST_ROWS[activeTab]
 
   useEffect(() => {
-    if (videoView || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
+    if (paneOpen || videoView || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
     const timer = setInterval(() => setSlideIndex(index => (index + 1) % HERO_SLIDES.length), 6000)
     return () => clearInterval(timer)
-  }, [videoView])
+  }, [paneOpen, videoView])
 
   useLayoutEffect(() => {
     if (inactive) {
