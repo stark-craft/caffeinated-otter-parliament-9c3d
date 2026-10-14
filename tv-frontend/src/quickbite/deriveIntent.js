@@ -188,6 +188,9 @@ const RULES = [
     conf: 0.95,
     re: /^(?:go\s+)?back\b|\bgo back\b|पीछे|peeche|वापस|wapas/u,
   },
+  // Clear a cart before generic add/remove or order cancellation. A phrase
+  // like "cancel and clear my cart" is a cart clear, not a placed-order cancel.
+  { name: "clear_cart", conf: 0.93, re: /\b(?:clear|empty)\b[\s\S]*\bcart\b/u },
   {
     name: "change_qty",
     conf: 0.92,
@@ -212,7 +215,7 @@ const RULES = [
   {
     name: "checkout",
     conf: 0.91,
-    re: /\bcheckout\b|\bplace (?:the )?order\b|ऑर्डर करो|order karo/u,
+    re: /\bcheck ?out\b|\bplace (?:the )?order\b|ऑर्डर करो|order karo/u,
   },
   { name: "pay", conf: 0.92, re: /\bpay\b|\bpayment\b|\bupi\b|पेमेंट|भुगतान/u },
   { name: "show_cart", conf: 0.93, test: (t) => CART.test(t) && SHOW.test(t) },
