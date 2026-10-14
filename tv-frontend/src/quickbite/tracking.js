@@ -92,6 +92,43 @@ export function reconcileTrackingSnapshot(previous, next, { descriptor, payment 
   return next
 }
 
+// TV presentation uses the provider's precise milestone; the API still owns order state.
+export function trackingDisplay(snapshot, phase = trackingPhase(snapshot)) {
+  const direct = typeof snapshot?.step === 'string' ? snapshot.step.trim() : ''
+  const indexed = !direct && Array.isArray(snapshot?.steps) &&
+    Number.isInteger(snapshot?.current) && snapshot.current >= 0 &&
+    snapshot.current < snapshot.steps.length
+      ? String(snapshot.steps[snapshot.current] || '').trim() : ''
+  const providerStep = direct || indexed
+  const status = providerStep || trackingText(snapshot)
+  // The rider reaching the restaurant is not yet the delivery departing.
+  const displayPhase = phase === 'on-the-way' && /^at (?:the )?restaurant$/i.test(providerStep)
+    ? 'preparing' : phase
+  const completedThrough = displayPhase === 'delivered' ? 2
+    : displayPhase === 'on-the-way' ? 1 : -1
+  const title = displayPhase === 'delivered' ? 'Delivered'
+    : status || (displayPhase === 'on-the-way' ? 'On the way' : 'Preparing your order')
+  const icon = displayPhase === 'delivered' ? '🎉'
+    : /\b(?:at your door|at the door|doorstep|reached your location)\b/i.test(providerStep) ? '🚪'
+    : /^at (?:the )?restaurant$/i.test(providerStep) ? '🏪'
+    : displayPhase === 'on-the-way' ? '🛵' : '👨‍🍳'
+  return { phase: displayPhase, status, title, icon, completedThrough }
+}
+
+// Compact status for the persistent Back / Status / Exit footer.
+// Never fabricate an ETA. The API owns the stage text, and session tracking
+// (including an order without an order_id) is refreshed by useLiveOrderTracking.
+export function trackingFooter(snapshot, descriptor) {
+  if (!descriptor || !snapshot) return null
+  // A response explicitly reporting no order is not a trackable item.
+  if (snapshot.found === false && !snapshot.order_id) return null
+  const display = trackingDisplay(snapshot)
+  const status = display.status || (snapshot.waiting ? 'Checking order status' : 'Order status')
+  const terminal = ['delivered', 'cancelled'].includes(display.phase)
+  const eta = !terminal && typeof snapshot.eta === 'string' ? snapshot.eta.trim() : ''
+  return { status, eta, phase: display.phase, screen: screenForTracking(snapshot) }
+}
+
 export async function withTrackingTimeout(request, milliseconds = 8000) {
   let timer
   try {
@@ -193,7 +230,9 @@ export function trackingSignature(snapshot) {
 }
 
 export function screenForTracking(snapshot) {
-  const phase = trackingPhase(snapshot)
+  // Keep the destination in sync with what the user sees in the stepper.
+  // 'At the restaurant' remains Preparing until the rider actually leaves.
+  const phase = trackingDisplay(snapshot).phase
 
   if (phase === 'cancelled') return 'cancelled'
   if (phase === 'delivered') return 'delivered'
