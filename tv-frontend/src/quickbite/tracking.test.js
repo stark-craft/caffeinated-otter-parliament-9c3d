@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { normalizeTrackingSnapshot, screenForTracking, trackingPhase, reconcileTrackingSnapshot, withTrackingTimeout } from './tracking.js'
+import { normalizeTrackingSnapshot, screenForTracking, trackingPhase, reconcileTrackingSnapshot, withTrackingTimeout, trackingDisplay, trackingFooter } from './tracking.js'
 
 test('payment incomplete is authoritative even when a generic heading says Placed', () => {
   const incomplete = { step: 'Placed', order_status: "Your order's payment is incomplete", done: false }
@@ -77,4 +77,67 @@ test('explicit Cancelled/Canceled status overrides a stale Preparing heading', (
     const next = reconcileTrackingSnapshot(preparing, { ...preparing, order_status: status })
     assert.equal(trackingPhase(next), 'cancelled')
   }
+})
+
+test('TV tracking reflects exact provider milestones and ticks every reached broad stage', () => {
+  const steps = ['Confirming payment', 'Placed', 'In the kitchen', 'Rider assigned',
+    'At the restaurant', 'On the way', 'At your door', 'Delivered']
+  for (const [step, current, expectedPhase, checked, icon] of [
+    ['In the kitchen', 2, 'preparing', -1, '👨‍🍳'],
+    ['Rider assigned', 3, 'preparing', -1, '👨‍🍳'],
+    ['At the restaurant', 4, 'preparing', -1, '🏪'],
+    ['On the way', 5, 'on-the-way', 1, '🛵'],
+    ['At your door', 6, 'on-the-way', 1, '🚪'],
+    ['Delivered', 7, 'delivered', 2, '🎉'],
+  ]) {
+    const snapshot = normalizeTrackingSnapshot({
+      found: true, step, steps, current, eta: current >= 6 ? null : '11 min',
+      order_status: current >= 5 ? 'Your order is on the way' : 'Preparing',
+      done: step === 'Delivered', platform: 'zomato'
+    })
+    const display = trackingDisplay(snapshot)
+    assert.equal(display.title, step, step)
+    assert.equal(display.status, step, step)
+    assert.equal(display.phase, expectedPhase, step)
+    assert.equal(display.completedThrough, checked, step)
+    assert.equal(display.icon, icon, step)
+  }
+})
+
+test('TV tracking falls back to backend current index but never invents a completed stage', () => {
+  const display = trackingDisplay({ steps: ['On the way', 'At your door'], current: 1,
+    order_status: 'Your order is on the way' })
+  assert.equal(display.title, 'At your door')
+  assert.equal(display.completedThrough, 1)
+  assert.equal(display.icon, '🚪')
+  assert.equal(trackingDisplay({ waiting: true, step: null, done: false }).completedThrough, -1)
+})
+
+test('persistent footer reports precise live status and ETA on any shopping screen', () => {
+  const descriptor = { server: 'zomato', kind: 'food', order_id: '8261234567' }
+  const snapshot = normalizeTrackingSnapshot({ payload: {
+    found: true, tracking: descriptor, step: 'At your door', eta_minutes: 3,
+  } })
+  assert.deepEqual(trackingFooter(snapshot, descriptor), {
+    status: 'At your door', eta: '3 min', phase: 'on-the-way', screen: 'on-the-way',
+  })
+  assert.deepEqual(trackingFooter({ ...snapshot, step: 'At the restaurant' }, descriptor), {
+    status: 'At the restaurant', eta: '3 min', phase: 'preparing', screen: 'preparing',
+  })
+  assert.equal(trackingFooter(null, descriptor), null)
+  assert.equal(trackingFooter(snapshot, null), null)
+  assert.equal(trackingFooter({ found: false }, descriptor), null)
+})
+
+test('footer never invents time and keeps terminal status readable', () => {
+  const descriptor = { server: 'swiggy', kind: 'food', order_id: 'ORD-7' }
+  assert.deepEqual(trackingFooter({ step: 'Rider assigned', eta: '' }, descriptor), {
+    status: 'Rider assigned', eta: '', phase: 'preparing', screen: 'preparing',
+  })
+  assert.deepEqual(trackingFooter({ step: 'Delivered', eta: '10 min', done: true }, descriptor), {
+    status: 'Delivered', eta: '', phase: 'delivered', screen: 'delivered',
+  })
+  assert.deepEqual(trackingFooter({ step: 'Cancelled', eta: '10 min' }, descriptor), {
+    status: 'Cancelled', eta: '', phase: 'cancelled', screen: 'cancelled',
+  })
 })
